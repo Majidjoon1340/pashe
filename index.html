@@ -29,7 +29,8 @@
     display: none;
   }
   #overlay { position: fixed; inset: 0; z-index: 1; }
-  #game { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #game, #gl3d { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #gl3d { pointer-events: none; }
   #flash {
     position: absolute; inset: 0; pointer-events: none; opacity: 0;
     background: radial-gradient(ellipse at center, rgba(255,0,0,0) 30%, rgba(255,0,0,.75) 100%);
@@ -81,6 +82,7 @@
 <div id="fallbackBg"></div>
 
 <div id="overlay">
+  <canvas id="gl3d"></canvas>
   <canvas id="game"></canvas>
   <div id="flash"></div>
   <div id="hud" class="hidden">
@@ -119,916 +121,1015 @@
   <button class="big" id="againBtn">دوباره</button>
 </div>
 
-<script>
-(() => {
-  'use strict';
+<script type="module">
+import * as THREE from './lib/three.module.min.js';
 
-  // ---------- DOM ----------
-  const $ = id => document.getElementById(id);
-  const video = $('cam'), canvas = $('game'), ctx = canvas.getContext('2d');
-  const flashEl = $('flash'), bannerEl = $('banner'), hintEl = $('hint');
-  const fa = n => Math.round(n).toLocaleString('fa-IR');
-  let W = 0, H = 0, DPR = 1, focal = 1;
-  const FOV_V = 62 * Math.PI / 180;
+// ---------- DOM ----------
+const $ = id => document.getElementById(id);
+const video = $('cam'), canvas = $('game'), ctx = canvas.getContext('2d');
+const flashEl = $('flash'), bannerEl = $('banner'), hintEl = $('hint'), overlayEl = $('overlay');
+const fa = n => Math.round(n).toLocaleString('fa-IR');
+const rand = (a, b) => a + Math.random() * (b - a);
+const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
+const UP = V(0, 1, 0);
+let W = 0, H = 0, DPR = 1, focal = 1, fovDeg = 62;
 
-  function resize() {
-    DPR = Math.min(window.devicePixelRatio || 1, 2);
-    W = window.innerWidth; H = window.innerHeight;
-    canvas.width = W * DPR; canvas.height = H * DPR;
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    const fov = W > H ? FOV_V * 0.75 : FOV_V;
-    focal = (H / 2) / Math.tan(fov / 2);
+// ---------- 3D renderer (transparent, drawn over the camera feed) ----------
+const renderer = new THREE.WebGLRenderer({ canvas: $('gl3d'), alpha: true, antialias: true });
+renderer.setClearColor(0x000000, 0);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(62, 1, 0.03, 100);
+scene.add(new THREE.HemisphereLight(0xeef4ff, 0x6a5a48, 2.4));
+const sun = new THREE.DirectionalLight(0xffffff, 2.2); sun.position.set(1, 3, 2); scene.add(sun);
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * DPR; canvas.height = H * DPR;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  fovDeg = W > H ? 48 : 62;
+  focal = (H / 2) / Math.tan(fovDeg * Math.PI / 360);
+  renderer.setPixelRatio(DPR); renderer.setSize(W, H, false);
+  camera.aspect = W / H; camera.fov = fovDeg; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ---------- Player pose ----------
+// World: Y up, metres. camPos.y = camera height above the floor.
+const camPos = V(0, 1.4, 0);
+const camQ = new THREE.Quaternion();
+let projM = null;
+let mode = 'sensor';
+let hasSensor = false, lastOrient = null;
+let lookYaw = 0, lookPitch = 0;
+const Q_TILT = new THREE.Quaternion(-Math.SQRT1_2, 0, 0, Math.SQRT1_2);
+const _e = new THREE.Euler(), _q = new THREE.Quaternion(), ZAXIS = V(0, 0, 1);
+
+function screenAngle() {
+  const o = (screen.orientation && screen.orientation.angle) ?? window.orientation ?? 0;
+  return (o || 0) * Math.PI / 180;
+}
+function onOrient(e) { if (e.alpha == null && e.beta == null) return; hasSensor = true; lastOrient = e; }
+function updateSensorPose() {
+  if (hasSensor && lastOrient) {
+    const d = Math.PI / 180;
+    _e.set((lastOrient.beta || 0) * d, (lastOrient.alpha || 0) * d, -(lastOrient.gamma || 0) * d, 'YXZ');
+    camQ.setFromEuler(_e).multiply(Q_TILT).multiply(_q.setFromAxisAngle(ZAXIS, -screenAngle()));
+  } else {
+    _e.set(lookPitch, lookYaw, 0, 'YXZ'); camQ.setFromEuler(_e);
   }
-  window.addEventListener('resize', resize);
-  resize();
+}
+function forwardFlat() {
+  const f = V(0, 0, -1).applyQuaternion(camQ);
+  let fx = f.x, fz = f.z;
+  if (Math.hypot(fx, fz) < 0.2) { const u = V(0, 1, 0).applyQuaternion(camQ); const s = Math.sign(-f.y || 1); fx = u.x * s; fz = u.z * s; }
+  const l = Math.hypot(fx, fz) || 1;
+  return [fx / l, fz / l];
+}
 
-  // ---------- Math ----------
-  const qMul = (a, b) => [
-    a[3]*b[0] + a[0]*b[3] + a[1]*b[2] - a[2]*b[1],
-    a[3]*b[1] - a[0]*b[2] + a[1]*b[3] + a[2]*b[0],
-    a[3]*b[2] + a[0]*b[1] - a[1]*b[0] + a[2]*b[3],
-    a[3]*b[3] - a[0]*b[0] - a[1]*b[1] - a[2]*b[2]
-  ];
-  const qConj = q => [-q[0], -q[1], -q[2], q[3]];
-  function qFromEulerYXZ(x, y, z) {
-    const c1 = Math.cos(x/2), c2 = Math.cos(y/2), c3 = Math.cos(z/2);
-    const s1 = Math.sin(x/2), s2 = Math.sin(y/2), s3 = Math.sin(z/2);
-    return [s1*c2*c3 + c1*s2*s3, c1*s2*c3 - s1*c2*s3, c1*c2*s3 - s1*s2*c3, c1*c2*c3 + s1*s2*s3];
-  }
-  const qAxis = (ax, ay, az, ang) => { const s = Math.sin(ang/2); return [ax*s, ay*s, az*s, Math.cos(ang/2)]; };
-  function qRot(q, v) { const p = qMul(qMul(q, [v[0], v[1], v[2], 0]), qConj(q)); return [p[0], p[1], p[2]]; }
-  const sub = (a, b) => [a[0]-b[0], a[1]-b[1], a[2]-b[2]];
-  const len = v => Math.hypot(v[0], v[1], v[2]);
-  const rand = (a, b) => a + Math.random() * (b - a);
+// Step counting fallback (no WebXR)
+let accLP = 9.8, lastStep = 0, stepArmed = true, steps = 0;
+function onMotion(e) {
+  const a = e.accelerationIncludingGravity; if (!a || a.x == null) return;
+  accLP = accLP * 0.8 + Math.hypot(a.x, a.y, a.z) * 0.2;
+  const now = performance.now();
+  if (stepArmed && accLP > 11.2 && now - lastStep > 320) { stepArmed = false; lastStep = now; takeStep(); }
+  if (accLP < 10.2) stepArmed = true;
+}
+function takeStep() {
+  if (mode !== 'sensor' || state !== 'play') return;
+  const [fx, fz] = forwardFlat();
+  camPos.x += fx * 0.65; camPos.z += fz * 0.65; steps++;
+}
+async function enableSensors() {
+  try {
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') await DeviceOrientationEvent.requestPermission();
+    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') await DeviceMotionEvent.requestPermission();
+  } catch (_) {}
+  window.addEventListener('deviceorientation', onOrient, true);
+  window.addEventListener('devicemotion', onMotion, true);
+}
 
-  // ---------- Player pose ----------
-  // World: Y up, metres. The camera looks along its local -Z.
-  // camPos.y is the camera height above the floor.
-  let camQ = [0, 0, 0, 1];
-  let camPos = [0, 1.4, 0];
-  let projM = null;          // WebXR projection matrix when in AR mode
-  let mode = 'sensor';       // 'xr' (real walking tracking) | 'sensor' (orientation + step counting)
-  let hasSensor = false, lastOrient = null;
-  let lookYaw = 0, lookPitch = 0;
-  const Q_TILT = [-Math.SQRT1_2, 0, 0, Math.SQRT1_2];
+// Desktop: drag to look, WASD to walk
+let dragging = false, dragX = 0, dragY = 0, dragMoved = 0;
+canvas.addEventListener('pointerdown', e => { dragging = true; dragX = e.clientX; dragY = e.clientY; dragMoved = 0; });
+window.addEventListener('pointermove', e => {
+  if (!dragging || hasSensor || mode === 'xr') return;
+  const dx = e.clientX - dragX, dy = e.clientY - dragY;
+  dragMoved += Math.abs(dx) + Math.abs(dy);
+  lookYaw += dx * 0.005; lookPitch = Math.max(-1.45, Math.min(1.45, lookPitch + dy * 0.005));
+  dragX = e.clientX; dragY = e.clientY;
+});
+window.addEventListener('pointerup', () => { dragging = false; });
+const keys = {};
+window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; });
+window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 
-  function screenAngle() {
-    const o = (screen.orientation && screen.orientation.angle) ?? window.orientation ?? 0;
-    return (o || 0) * Math.PI / 180;
-  }
-  function onOrient(e) { if (e.alpha == null && e.beta == null) return; hasSensor = true; lastOrient = e; }
-  function updateSensorPose() {
-    if (hasSensor && lastOrient) {
-      const d = Math.PI / 180;
-      let q = qFromEulerYXZ((lastOrient.beta || 0) * d, (lastOrient.alpha || 0) * d, -(lastOrient.gamma || 0) * d);
-      q = qMul(q, Q_TILT);
-      camQ = qMul(q, qAxis(0, 0, 1, -screenAngle()));
-    } else {
-      camQ = qFromEulerYXZ(lookPitch, lookYaw, 0);
-    }
-  }
-  function forwardFlat() {
-    const f = qRot(camQ, [0, 0, -1]);
-    let fx = f[0], fz = f[2];
-    // looking straight down/up: use the phone's top edge as "forward"
-    if (Math.hypot(fx, fz) < 0.2) { const u = qRot(camQ, [0, 1, 0]); fx = u[0] * Math.sign(-f[1] || 1); fz = u[2] * Math.sign(-f[1] || 1); }
-    const l = Math.hypot(fx, fz) || 1;
-    return [fx / l, fz / l];
-  }
+async function startCamera() {
+  if (video.srcObject) return;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    video.srcObject = stream; await video.play().catch(() => {});
+  } catch (err) { video.classList.add('hidden'); $('fallbackBg').style.display = 'block'; }
+}
 
-  // Step counting (used when real walking tracking is not available, e.g. iPhone)
-  let accLP = 9.8, lastStep = 0, stepArmed = true, steps = 0;
-  const STEP_LEN = 0.65;
-  function onMotion(e) {
-    const a = e.accelerationIncludingGravity; if (!a || a.x == null) return;
-    const m = Math.hypot(a.x, a.y, a.z);
-    accLP = accLP * 0.8 + m * 0.2;
-    const now = performance.now();
-    if (stepArmed && accLP > 11.2 && now - lastStep > 320) { stepArmed = false; lastStep = now; takeStep(); }
-    if (accLP < 10.2) stepArmed = true;
-  }
-  function takeStep() {
-    if (mode !== 'sensor' || state !== 'play') return;
-    const [fx, fz] = forwardFlat();
-    camPos[0] += fx * STEP_LEN; camPos[2] += fz * STEP_LEN;
-    steps++;
-  }
-  async function enableSensors() {
-    try {
-      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-        await DeviceOrientationEvent.requestPermission();
-      }
-      if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-        await DeviceMotionEvent.requestPermission();
-      }
-    } catch (_) {}
-    window.addEventListener('deviceorientation', onOrient, true);
-    window.addEventListener('devicemotion', onMotion, true);
-  }
-
-  // Desktop fallback: drag to look, WASD / arrows to walk
-  let dragging = false, dragX = 0, dragY = 0, dragMoved = 0;
-  canvas.addEventListener('pointerdown', e => { dragging = true; dragX = e.clientX; dragY = e.clientY; dragMoved = 0; });
-  window.addEventListener('pointermove', e => {
-    if (!dragging || hasSensor || mode === 'xr') return;
-    const dx = e.clientX - dragX, dy = e.clientY - dragY;
-    dragMoved += Math.abs(dx) + Math.abs(dy);
-    lookYaw += dx * 0.005; lookPitch = Math.max(-1.45, Math.min(1.45, lookPitch + dy * 0.005));
-    dragX = e.clientX; dragY = e.clientY;
-  });
-  window.addEventListener('pointerup', () => { dragging = false; });
-  const keys = {};
-  window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; });
-  window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
-
-  // ---------- Camera feed (sensor mode) ----------
-  async function startCamera() {
-    if (video.srcObject) return;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false
-      });
-      video.srcObject = stream;
-      await video.play().catch(() => {});
-    } catch (err) {
-      video.classList.add('hidden');
-      $('fallbackBg').style.display = 'block';
-    }
-  }
-
-  // ---------- WebXR (Android Chrome with ARCore: real walking tracking) ----------
-  let xrSession = null, xrRef = null, xrGL = null, xrFloor = false;
-  async function xrSupported() {
-    try { return !!(navigator.xr && await navigator.xr.isSessionSupported('immersive-ar')); } catch (_) { return false; }
-  }
-  async function startXR() {
-    const session = await navigator.xr.requestSession('immersive-ar', {
-      optionalFeatures: ['dom-overlay', 'local-floor'],
-      domOverlay: { root: $('overlay') }
-    });
-    const glCanvas = document.createElement('canvas');
-    xrGL = glCanvas.getContext('webgl', { xrCompatible: true, alpha: true });
-    await session.updateRenderState({ baseLayer: new XRWebGLLayer(session, xrGL) });
-    try { xrRef = await session.requestReferenceSpace('local-floor'); xrFloor = true; }
-    catch (_) { xrRef = await session.requestReferenceSpace('local'); xrFloor = false; }
-    xrSession = session;
-    mode = 'xr';
-    document.body.classList.add('xr');
-    video.classList.add('hidden');
-    session.addEventListener('end', () => {
-      xrSession = null; mode = 'sensor'; projM = null;
-      document.body.classList.remove('xr'); video.classList.remove('hidden');
-      if (state === 'play') gameOver(true);
-      requestAnimationFrame(loop);
-    });
-    session.requestAnimationFrame(onXRFrame);
-  }
-  let xrLastT = 0;
-  function onXRFrame(t, frame) {
-    const session = frame.session;
-    session.requestAnimationFrame(onXRFrame);
-    const layer = session.renderState.baseLayer;
-    xrGL.bindFramebuffer(xrGL.FRAMEBUFFER, layer.framebuffer);
-    xrGL.clearColor(0, 0, 0, 0); xrGL.clear(xrGL.COLOR_BUFFER_BIT);
-    const pose = frame.getViewerPose(xrRef);
-    if (pose) {
-      const p = pose.transform.position, o = pose.transform.orientation;
-      // without a floor reference, assume the phone started about 1.4 m above the floor
-      camPos = [p.x, xrFloor ? p.y : p.y + 1.4, p.z];
-      camQ = [o.x, o.y, o.z, o.w];
-      projM = pose.views[0].projectionMatrix;
-    }
-    const dt = Math.min(0.05, (t - xrLastT) / 1000 || 0); xrLastT = t;
-    step(dt);
-  }
-
-  // ---------- Audio ----------
-  let actx = null, master = null;
-  function initAudio() {
-    try {
-      actx = new (window.AudioContext || window.webkitAudioContext)();
-      master = actx.createGain(); master.gain.value = 0.9; master.connect(actx.destination);
-    } catch (_) { actx = null; }
-  }
-  function setParam(param, v) { param.setTargetAtTime(v, actx.currentTime, 0.03); }
-  function updateListener() {
-    if (!actx) return;
-    const L = actx.listener, f = qRot(camQ, [0, 0, -1]), u = qRot(camQ, [0, 1, 0]);
-    if (L.forwardX) {
-      setParam(L.forwardX, f[0]); setParam(L.forwardY, f[1]); setParam(L.forwardZ, f[2]);
-      setParam(L.upX, u[0]); setParam(L.upY, u[1]); setParam(L.upZ, u[2]);
-      setParam(L.positionX, camPos[0]); setParam(L.positionY, camPos[1]); setParam(L.positionZ, camPos[2]);
-    } else {
-      L.setOrientation && L.setOrientation(f[0], f[1], f[2], u[0], u[1], u[2]);
-      L.setPosition && L.setPosition(camPos[0], camPos[1], camPos[2]);
-    }
-  }
-  function makeBuzz(pitch, vol) {
-    if (!actx) return null;
-    const S = theme.sound; pitch *= S.f;
-    const osc = actx.createOscillator(); osc.type = S.wave; osc.frequency.value = pitch;
-    const osc2 = actx.createOscillator(); osc2.type = S.wave === 'sine' ? 'sine' : 'square'; osc2.frequency.value = pitch * 1.005;
-    const lfo = actx.createOscillator(); lfo.frequency.value = S.lfo * rand(0.8, 1.2);
-    const lfoGain = actx.createGain(); lfoGain.gain.value = pitch * S.depth;
-    lfo.connect(lfoGain); lfoGain.connect(osc.frequency); lfoGain.connect(osc2.frequency);
-    const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = pitch * 2.2; bp.Q.value = 1.2;
-    const g2 = actx.createGain(); g2.gain.value = 0.35;
-    const gain = actx.createGain(); gain.gain.value = 0;
-    gain.gain.setTargetAtTime(vol, actx.currentTime, 0.1);
-    const pan = actx.createPanner();
-    pan.panningModel = 'HRTF'; pan.distanceModel = 'inverse'; pan.refDistance = 0.6; pan.rolloffFactor = 1.2; pan.maxDistance = 40;
-    osc.connect(bp); osc2.connect(g2); g2.connect(bp); bp.connect(gain); gain.connect(pan); pan.connect(master);
-    osc.start(); osc2.start(); lfo.start();
-    return { osc, osc2, lfo, gain, pan, vol };
-  }
-  function moveBuzz(b, p, loud) {
-    if (!b) return;
-    if (b.pan.positionX) { setParam(b.pan.positionX, p[0]); setParam(b.pan.positionY, p[1]); setParam(b.pan.positionZ, p[2]); }
-    else b.pan.setPosition(p[0], p[1], p[2]);
-    setParam(b.gain.gain, b.vol * loud);
-  }
-  function stopBuzz(b) {
-    if (!b) return;
-    b.gain.gain.setTargetAtTime(0, actx.currentTime, 0.04);
-    setTimeout(() => { try { b.osc.stop(); b.osc2.stop(); b.lfo.stop(); b.pan.disconnect(); } catch (_) {} }, 300);
-  }
-  function sfx(type) {
-    if (!actx) return;
-    const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
-    o.connect(g); g.connect(master);
-    const env = (f0, f1, dur, vol, wave) => {
-      o.type = wave; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur * 0.8);
-      g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur); o.start(t); o.stop(t + dur + 0.01);
-    };
-    if (type === 'splat') env(320, 60, 0.15, 0.5, 'triangle');
-    else if (type === 'hit') env(700, 300, 0.08, 0.2, 'square');
-    else if (type === 'bite') env(140, 70, 0.35, 0.5, 'sawtooth');
-    else if (type === 'alert') env(500, 900, 0.18, 0.15, 'sine');
-    else if (type === 'level') env(440, 880, 0.4, 0.25, 'sine');
-    else if (type === 'boom') env(180, 30, 0.45, 0.6, 'sawtooth');
-  }
-
-  // ---------- Mosquito types ----------
-  // rest: hovering at its hiding spot. attack: flies at the player once the player comes within `aggro` metres.
-  const TYPES = {
-    normal:   { hp: 1, attack: 0.45, size: 0.09, dmg: 8,  aggro: 1.6, pitch: 560, vol: 0.5,  color: '#2a2622', score: 10, wiggle: 0.3 },
-    fast:     { hp: 1, attack: 0.8,  size: 0.075, dmg: 7, aggro: 2.0, pitch: 720, vol: 0.45, color: '#3b3020', score: 20, wiggle: 0.9, zigzag: true },
-    fat:      { hp: 3, attack: 0.3,  size: 0.13, dmg: 15, aggro: 1.4, pitch: 380, vol: 0.6,  color: '#3a1d1d', score: 40, wiggle: 0.2, blood: true },
-    splitter: { hp: 1, attack: 0.45, size: 0.1,  dmg: 8,  aggro: 1.6, pitch: 500, vol: 0.5,  color: '#1f2b22', score: 25, wiggle: 0.35, split: true },
-    ghost:    { hp: 1, attack: 0.5,  size: 0.09, dmg: 10, aggro: 1.5, pitch: 620, vol: 0.7,  color: '#202530', score: 35, wiggle: 0.4, ghost: true },
-    mini:     { hp: 1, attack: 0.7,  size: 0.06, dmg: 4,  aggro: 3.0, pitch: 840, vol: 0.35, color: '#2a2622', score: 10, wiggle: 0.8, zigzag: true }
-  };
-
-  // ---------- Themes: what is attacking ----------
-  // Mechanics stay the same; look, size, sound and wording change.
-  const THEMES = {
-    mosquito: { one: 'پشه', many: 'پشه‌ها', size: 1, hitTitle: 'نیش خوردی!', bite: 'نیش',
-      intro: 'پشه‌ها توی خونه پخش شدن: بالای کمد، زیر میز، توی راهرو.',
-      sound: { wave: 'sawtooth', f: 1, lfo: 22, depth: 0.04 } },
-    bird: { one: 'پرنده', many: 'پرنده‌ها', size: 2.2, hitTitle: 'نوک خوردی!', bite: 'نوک',
-      intro: 'یه دسته پرنده‌ی عصبانی این اطراف نشستن: روی کمد، کنار پنجره، توی راهرو.',
-      sound: { wave: 'sine', f: 3.2, lfo: 7, depth: 0.25 } },
-    plane: { one: 'هواپیما', many: 'هواپیماها', size: 2.6, hitTitle: 'هواپیما بهت خورد!', bite: 'ضربه',
-      intro: 'یه گروه هواپیمای کوچیک این اطراف دور می‌زنن و منتظرن نزدیکشون بشی.',
-      sound: { wave: 'sawtooth', f: 0.22, lfo: 35, depth: 0.03 } },
-    missile: { one: 'موشک', many: 'موشک‌ها', size: 2.2, hitTitle: 'منفجر شدی!', bite: 'انفجار',
-      intro: 'چند تا موشک کوچیک این اطراف معلق موندن و تا نزدیکشون بشی شلیک می‌شن.',
-      sound: { wave: 'sawtooth', f: 0.45, lfo: 60, depth: 0.08 } }
-  };
-  let themeKey = 'mosquito';
-  try { const t = localStorage.getItem('vizviz_theme'); if (THEMES[t]) themeKey = t; } catch (_) {}
-  let theme = THEMES[themeKey];
-  function applyTheme() {
-    theme = THEMES[themeKey];
-    for (const x of $('themes').children) x.classList.toggle('on', x.dataset.t === themeKey);
-    $('intro').textContent = theme.intro + ' راه برو، گوشی رو به اطراف بگیر و پیداشون کن. وقتی بهشون نزدیک بشی بهت حمله می‌کنن، پس قبل از اینکه بهت برسن با انگشت بزن روشون.';
-    $('intro2').textContent = 'رادار پایین صفحه نشون می‌ده ' + theme.many + ' کدوم طرف و چقدر دورن. با هدفون صداشون رو هم می‌شنوی.';
-    $('leftLabel').textContent = theme.many + 'ی مونده';
-  }
-
-  // ---------- Game state ----------
-  let state = 'menu';
-  let areaR = 6;                         // radius of the play area in metres (chosen on the start screen)
-  let origin = [0, 0, 0];                // player position when the level started
-  let mosquitoes = [], particles = [], popups = [];
-  let score = 0, health = 100, level = 0, levelTime = 0, levelBreak = 0;
-  let combo = 0, comboTimer = 0, biteTimes = [], itchUntil = 0;
-  let lastT = 0, time = 0, nextId = 1;
-  const MAX_BUZZ = 8;
-
-  // Difficulty grows slowly: a couple more mosquitoes per level, new types unlock one at a time.
-  function levelPlan(n) {
-    const count = 4 + Math.floor(n * 1.5);
-    const pool = [['normal', 1]];
-    if (n >= 3) pool.push(['fast', 0.25 + 0.03 * n]);
-    if (n >= 4) pool.push(['fat', 0.25]);
-    if (n >= 5) pool.push(['splitter', 0.25]);
-    if (n >= 7) pool.push(['ghost', 0.2]);
-    return { count, pool, speedMul: 1 + Math.min(n - 1, 10) * 0.04, aggroMul: 1 + Math.min(n - 1, 10) * 0.03 };
-  }
-  function pick(pool) {
-    const total = pool.reduce((s, p) => s + p[1], 0);
-    let r = Math.random() * total;
-    for (const [k, w] of pool) { r -= w; if (r <= 0) return k; }
-    return pool[0][0];
-  }
-
-  // Hiding spot: spread around the play area, from floor level up to the ceiling.
-  function hidingSpot(minD, maxD) {
-    const a = Math.random() * Math.PI * 2, d = rand(minD, maxD);
-    const y = Math.random() < 0.25 ? rand(0.15, 0.5) : (Math.random() < 0.3 ? rand(1.9, 2.4) : rand(0.6, 1.8));
-    return [origin[0] + Math.cos(a) * d, y, origin[2] + Math.sin(a) * d];
-  }
-
-  function spawn(typeKey, pos, plan) {
-    const T = TYPES[typeKey];
-    const m = {
-      id: nextId++, type: typeKey, T, hp: T.hp, pos: pos.slice(), home: pos.slice(),
-      phase: Math.random() * 100, mode: 'rest', cool: 0,
-      speedMul: (plan ? plan.speedMul : 1) * rand(0.9, 1.1), aggro: T.aggro * (plan ? plan.aggroMul : 1),
-      hitFlash: 0, buzz: null, screen: null
-    };
-    mosquitoes.push(m);
-    return m;
-  }
-
-  function startLevel() {
-    level++;
-    levelTime = 0;
-    origin = [camPos[0], 0, camPos[2]];
-    const plan = levelPlan(level);
-    for (let i = 0; i < plan.count; i++) {
-      // the first couple are close so there is action right away; the rest need walking to find
-      const frac = i / plan.count;
-      const minD = i < 2 ? 1.5 : Math.max(1.5, areaR * 0.3);
-      const maxD = i < 2 ? Math.min(2.5, areaR) : areaR * (0.6 + 0.4 * frac);
-      spawn(pick(plan.pool), hidingSpot(minD, Math.max(minD + 0.5, maxD)), plan);
-    }
-    $('level').textContent = fa(level);
-    updateLeft();
-    showBanner('مرحله‌ی ' + fa(level), fa(plan.count) + ' تا ' + theme.one + ' این اطراف قایم شدن', 2200);
-    sfx('level');
-  }
-
-  function updateLeft() { $('left').textContent = fa(mosquitoes.length); }
-
-  function showBanner(text, sub = '', ms = 1600) {
-    bannerEl.innerHTML = text + (sub ? '<small>' + sub + '</small>' : '');
-    bannerEl.style.opacity = 1;
-    clearTimeout(showBanner._t); showBanner._t = setTimeout(() => bannerEl.style.opacity = 0, ms);
-  }
-
-  function resetGame() {
-    mosquitoes.forEach(m => stopBuzz(m.buzz));
-    mosquitoes = []; particles = []; popups = [];
-    score = 0; health = 100; level = 0; combo = 0; biteTimes = []; itchUntil = 0; steps = 0; levelBreak = 0;
-    $('score').textContent = fa(0); $('health').style.width = '100%';
-    startLevel();
-  }
-
-  function bite(m) {
-    health = Math.max(0, health - m.T.dmg);
-    $('health').style.width = health + '%';
-    flashEl.style.transition = 'none'; flashEl.style.opacity = 1;
-    requestAnimationFrame(() => { flashEl.style.transition = 'opacity .5s'; flashEl.style.opacity = 0; });
-    try { navigator.vibrate && navigator.vibrate([120, 40, 80]); } catch (_) {}
-    sfx('bite');
-    combo = 0;
-    biteTimes = biteTimes.filter(t => time - t < 6); biteTimes.push(time);
-    if (biteTimes.length >= 3) { itchUntil = time + 3; biteTimes = []; showBanner('خارش!', '', 1200); }
-    // after biting, it flies off to a new hiding spot a few metres away and rests for a while
-    const a = Math.random() * Math.PI * 2, d = rand(2, Math.max(2.5, areaR * 0.6));
-    m.home = [camPos[0] + Math.cos(a) * d, rand(0.4, 2.2), camPos[2] + Math.sin(a) * d];
-    m.mode = 'flee'; m.cool = 6;
-    if (health <= 0) gameOver(false);
-  }
-
-  function kill(m, sx, sy) {
-    stopBuzz(m.buzz); m.buzz = null; m.dead = true;
-    combo++; comboTimer = 4;
-    const mult = 1 + Math.floor(combo / 3) * 0.5;
-    const pts = Math.round(m.T.score * mult);
-    score += pts;
-    $('score').textContent = fa(score);
-    popups.push({ x: sx, y: sy, text: '+' + fa(pts), life: 0.9 });
-    burst(sx, sy, m);
-    if (m.T.split) {
-      for (let i = 0; i < 2; i++) {
-        const c = spawn('mini', hidingSpot(1.5, Math.max(2, areaR * 0.5)));
-        c.pos = m.pos.map(v => v + rand(-0.2, 0.2));
-        c.mode = 'flee'; c.cool = 3;
-      }
-    }
-    try { navigator.vibrate && navigator.vibrate(15); } catch (_) {}
-  }
-
-  function burst(sx, sy, m) {
-    const boom = themeKey === 'plane' || themeKey === 'missile';
-    const n = boom ? 26 : themeKey === 'bird' ? 16 : 10 + (m.T.blood ? 10 : 0);
-    for (let i = 0; i < n; i++) {
-      const a = Math.random() * Math.PI * 2, s = (boom ? 90 : themeKey === 'bird' ? 40 : 60) + Math.random() * 180;
-      let c;
-      if (boom) c = ['#ffdf5a', '#ff8a1f', '#ff3b1f', '#555', '#333'][Math.floor(Math.random() * 5)];
-      else if (themeKey === 'bird') c = Math.random() < 0.5 ? '#f2efe6' : FEATHER[m.type] || '#8a6a4a';
-      else c = m.T.blood || Math.random() < 0.3 ? '#b3121b' : '#1a1714';
-      particles.push({ x: sx, y: sy, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: (themeKey === 'bird' ? 0.9 : 0.5) + Math.random() * 0.3,
-        r: (boom ? 3 : 2) + Math.random() * (boom ? 5 : 3), c, feather: themeKey === 'bird' });
-    }
-    if (boom) particles.push({ ring: true, x: sx, y: sy, life: 0.35, r: 6, c: 'rgba(255,170,40,.9)' });
-    sfx(boom ? 'boom' : 'splat');
-  }
-
-  function gameOver(quit) {
-    if (state !== 'play') return;
-    state = 'over';
-    mosquitoes.forEach(m => { stopBuzz(m.buzz); m.buzz = null; });
-    let best = 0;
-    try { best = +localStorage.getItem('vizviz_best') || 0; if (score > best) localStorage.setItem('vizviz_best', score); } catch (_) {}
-    $('overTitle').textContent = quit ? 'بازی تموم شد' : theme.hitTitle;
-    $('overText').innerHTML = 'به مرحله‌ی ' + fa(level) + ' رسیدی.<br>امتیاز: <b>' + fa(score) + '</b>' +
-      (score > best ? '<br>رکورد جدید!' : (best ? '<br>بهترین امتیاز: ' + fa(best) : ''));
-    $('overScreen').classList.remove('hidden');
-    $('hud').classList.add('hidden');
-    hintEl.textContent = '';
-    if (xrSession) xrSession.end().catch(() => {});
-  }
-
-  // ---------- Input: tap to swat ----------
-  canvas.addEventListener('pointerup', e => {
-    if (state !== 'play') return;
-    if (mode !== 'xr' && !hasSensor && dragMoved > 12) return;
-    swat(e.clientX, e.clientY);
-  });
-  // keep taps on the overlay from also firing an XR "select"
-  $('overlay').addEventListener('beforexrselect', e => e.preventDefault());
-
-  function swat(x, y) {
-    let best = null, bestD = Infinity;
-    for (const m of mosquitoes) {
-      if (m.dead || !m.screen) continue;
-      const s = m.screen, radius = Math.max(36, s.r * 1.8), d = Math.hypot(s.x - x, s.y - y);
-      if (d < radius && s.depth < bestD) { best = m; bestD = s.depth; }
-    }
-    particles.push({ ring: true, x, y, life: 0.25, r: 10 });
-    if (!best) return;
-    best.hp--;
-    if (best.hp <= 0) kill(best, best.screen.x, best.screen.y);
-    else {
-      best.hitFlash = 0.15; sfx('hit');
-      const away = sub(best.pos, camPos), l = len(away) || 1;
-      for (let k = 0; k < 3; k++) best.pos[k] += away[k] / l * 0.6;
-    }
-  }
-
-  // ---------- Update ----------
-  function update(dt) {
-    time += dt;
-    if (mode === 'sensor') {
-      if (!hasSensor) {
-        if (keys.arrowleft) lookYaw += dt * 1.8;
-        if (keys.arrowright) lookYaw -= dt * 1.8;
-      }
-      updateSensorPose();
-      if (state === 'play') {
-        const [fx, fz] = forwardFlat(), sp = 1.4 * dt;
-        if (keys.w || keys.arrowup) { camPos[0] += fx * sp; camPos[2] += fz * sp; }
-        if (keys.s || keys.arrowdown) { camPos[0] -= fx * sp; camPos[2] -= fz * sp; }
-        if (keys.a) { camPos[0] += fz * sp; camPos[2] -= fx * sp; }
-        if (keys.d) { camPos[0] -= fz * sp; camPos[2] += fx * sp; }
-      }
-    }
-    updateListener();
-    if (state !== 'play') return;
-    levelTime += dt;
-
-    if (comboTimer > 0) { comboTimer -= dt; if (comboTimer <= 0) combo = 0; }
-    const blur = time < itchUntil ? 'blur(5px) saturate(1.4)' : '';
-    video.style.filter = blur; $('fallbackBg').style.filter = blur;
-
-    if (mosquitoes.length === 0) {
-      if (levelBreak <= 0) {
-        levelBreak = 3;
-        const bonus = Math.max(0, Math.round(200 - levelTime * 2));
-        score += bonus; $('score').textContent = fa(score);
-        health = Math.min(100, health + 30); $('health').style.width = health + '%';
-        showBanner('همه رو کشتی!', bonus ? 'جایزه‌ی سرعت: ' + fa(bonus) : '', 2500);
-      }
-      levelBreak -= dt;
-      if (levelBreak <= 0.0001) { levelBreak = 0; startLevel(); }
-    }
-
-    let attackers = 0;
-    for (const m of mosquitoes) {
-      if (m.dead) continue;
-      m.phase += dt;
-      if (m.hitFlash > 0) m.hitFlash -= dt;
-      if (m.cool > 0) m.cool -= dt;
-      const toP = sub(camPos, m.pos), dP = len(toP);
-      const w = m.T.wiggle;
-
-      if (m.mode === 'rest' && dP < m.aggro && m.cool <= 0) { m.mode = 'attack'; sfx('alert'); }
-      if (m.mode === 'attack' && dP > m.aggro * 2.5) { m.mode = 'rest'; m.cool = 2; }
-      if (m.mode === 'flee' && m.cool <= 0) m.mode = 'rest';
-
-      if (m.mode === 'attack') {
-        attackers++;
-        const sp = m.T.attack * m.speedMul;
-        let side = [toP[2], 0, -toP[0]]; const sl = Math.hypot(side[0], side[2]) || 1;
-        const zig = m.T.zigzag ? Math.sign(Math.sin(m.phase * 2.2)) : Math.sin(m.phase * 1.7);
-        for (let k = 0; k < 3; k++) m.pos[k] += (toP[k] / dP * sp + side[k] / sl * zig * w * 0.6) * dt;
-        m.pos[1] += Math.sin(m.phase * 2.9 + m.id) * w * 0.4 * dt;
-        if (len(sub(camPos, m.pos)) < 0.28) { bite(m); if (state !== 'play') return; }
-      } else {
-        // rest / flee: drift back to the hiding spot and hover around it
-        const target = [
-          m.home[0] + Math.sin(m.phase * 0.7 + m.id) * 0.25,
-          m.home[1] + Math.sin(m.phase * 1.3 + m.id * 2) * 0.12,
-          m.home[2] + Math.cos(m.phase * 0.9 + m.id) * 0.25
-        ];
-        const toH = sub(target, m.pos), dH = len(toH) || 1;
-        const sp = m.mode === 'flee' ? 1.2 : Math.min(0.5, dH * 1.5);
-        for (let k = 0; k < 3; k++) m.pos[k] += toH[k] / dH * sp * dt;
-      }
-    }
-    mosquitoes = mosquitoes.filter(m => !m.dead);
-    updateLeft();
-
-    // audio: the closest few buzz; resting ones are quieter so attackers stand out
-    if (actx) {
-      const sorted = mosquitoes.slice().sort((a, b) => len(sub(a.pos, camPos)) - len(sub(b.pos, camPos)));
-      sorted.forEach((m, i) => {
-        if (i < MAX_BUZZ) {
-          if (!m.buzz) m.buzz = makeBuzz(m.T.pitch * rand(0.95, 1.05), m.T.vol);
-          moveBuzz(m.buzz, m.pos, m.mode === 'attack' ? 1 : 0.55);
-        } else if (m.buzz) { stopBuzz(m.buzz); m.buzz = null; }
-      });
-    }
-
-    // hint text
-    if (mosquitoes.length) {
-      const nearest = Math.min(...mosquitoes.map(m => len(sub(m.pos, camPos))));
-      if (attackers) hintEl.textContent = attackers > 1 ? fa(attackers) + ' تا ' + theme.one + ' دارن حمله می‌کنن!' : 'یه ' + theme.one + ' داره حمله می‌کنه!';
-      else if (nearest > 2.2) hintEl.textContent = 'نزدیک‌ترین ' + theme.one + ' حدود ' + fa(Math.round(nearest)) + ' متر دوره. راه برو و دنبالش بگرد.' +
-        (mode === 'sensor' && hasSensor && steps === 0 && levelTime > 6 ? ' (گوشی رو جلوت نگه دار و راه برو، قدم‌هات شمرده می‌شه)' : '');
-      else hintEl.textContent = 'خیلی نزدیکی، دور و برت رو نگاه کن.';
-    } else hintEl.textContent = '';
-
-    for (const pt of particles) {
-      pt.life -= dt;
-      if (!pt.ring) { pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.vx *= 0.9; pt.vy *= 0.9; if (pt.feather) pt.vy += 60 * dt; }
-      else pt.r += 160 * dt;
-    }
-    particles = particles.filter(p => p.life > 0);
-    for (const pp of popups) { pp.life -= dt; pp.y -= 40 * dt; }
-    popups = popups.filter(p => p.life > 0);
-  }
-
-  // ---------- Render ----------
-  function project(p) {
-    const v = qRot(qConj(camQ), sub(p, camPos));
-    if (v[2] > -0.05) return { behind: true, v };
-    const z = -v[2];
-    if (projM) {
-      const P = projM;
-      const cx = P[0]*v[0] + P[4]*v[1] + P[8]*v[2] + P[12];
-      const cy = P[1]*v[0] + P[5]*v[1] + P[9]*v[2] + P[13];
-      const cw = P[3]*v[0] + P[7]*v[1] + P[11]*v[2] + P[15];
-      return { x: (cx / cw + 1) / 2 * W, y: (1 - cy / cw) / 2 * H, depth: z, v, f: P[5] * H / 2 };
-    }
-    return { x: W / 2 + (v[0] / z) * focal, y: H / 2 - (v[1] / z) * focal, depth: z, v, f: focal };
-  }
-
-  function drawMosquito(m, x, y, r, dist) {
-    const T = m.T;
-    let alpha = 1;
-    if (T.ghost) alpha = dist < 1.2 ? 0.85 : 0.12 + 0.1 * Math.sin(time * 6 + m.id);
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.translate(x, y);
-    ctx.rotate(Math.sin(m.phase * 1.7) * 0.4);
-    const flap = Math.abs(Math.sin(time * 70 + m.id));
-    ctx.fillStyle = 'rgba(220,230,240,0.45)'; ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-    ctx.lineWidth = Math.max(0.5, r * 0.04);
-    for (const s of [-1, 1]) {
-      ctx.beginPath();
-      ctx.ellipse(s * r * 0.55, -r * 0.25, r * 0.75, r * (0.18 + 0.2 * flap), s * (0.5 - flap * 0.4), 0, Math.PI * 2);
-      ctx.fill(); ctx.stroke();
-    }
-    ctx.strokeStyle = T.color; ctx.lineWidth = Math.max(0.7, r * 0.05);
-    for (const s of [-1, 1]) for (let i = 0; i < 3; i++) {
-      ctx.beginPath();
-      ctx.moveTo(s * r * 0.1, r * (i * 0.12));
-      ctx.quadraticCurveTo(s * r * 0.7, r * (0.1 + i * 0.25), s * r * (0.9 + i * 0.15), r * (0.7 + i * 0.25));
-      ctx.stroke();
-    }
-    const body = m.hitFlash > 0 ? '#fff' : T.color;
-    ctx.fillStyle = body;
-    ctx.beginPath(); ctx.ellipse(0, r * 0.45, r * 0.16, r * 0.55, 0, 0, Math.PI * 2); ctx.fill();
-    if (T.blood) { ctx.fillStyle = 'rgba(190,20,30,0.85)'; ctx.beginPath(); ctx.ellipse(0, r * 0.55, r * 0.13, r * 0.4, 0, 0, Math.PI * 2); ctx.fill(); }
-    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = Math.max(0.5, r * 0.035);
-    for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(-r * 0.13, r * (0.3 + i * 0.18)); ctx.lineTo(r * 0.13, r * (0.3 + i * 0.18)); ctx.stroke(); }
-    ctx.fillStyle = body;
-    ctx.beginPath(); ctx.ellipse(0, -r * 0.12, r * 0.2, r * 0.22, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(0, -r * 0.42, r * 0.12, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = T.color; ctx.lineWidth = Math.max(0.6, r * 0.035);
-    ctx.beginPath(); ctx.moveTo(0, -r * 0.52); ctx.lineTo(0, -r * 1.0); ctx.stroke();
-    ctx.fillStyle = m.mode === 'attack' ? '#ff2a2a' : (T.split ? '#7dff9a' : '#7a1a1a');
-    ctx.beginPath(); ctx.arc(-r * 0.06, -r * 0.45, r * 0.045, 0, Math.PI * 2); ctx.arc(r * 0.06, -r * 0.45, r * 0.045, 0, Math.PI * 2); ctx.fill();
-    ctx.globalAlpha = 1;
-    if (T.hp > 1) {
-      for (let i = 0; i < T.hp; i++) {
-        ctx.fillStyle = i < m.hp ? '#ffcf3f' : 'rgba(255,255,255,.25)';
-        ctx.beginPath(); ctx.arc((i - (T.hp - 1) / 2) * 9, -r * 1.25, 3, 0, Math.PI * 2); ctx.fill();
-      }
-    }
-    ctx.restore();
-    // small marker so far-away ones are spottable
-    if (r < 10 && alpha > 0.5) {
-      ctx.strokeStyle = m.mode === 'attack' ? 'rgba(255,60,60,.8)' : 'rgba(255,207,63,.6)';
-      ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.stroke();
-    }
-  }
-
-  const FEATHER = { normal: '#8a6a4a', fast: '#3d5a80', fat: '#6b4f3a', splitter: '#4f7a4a', ghost: '#9aa0aa', mini: '#b08a5a' };
-  const PAINT = { normal: '#d9dde3', fast: '#e0b43a', fat: '#6c7a5a', splitter: '#4f86c6', ghost: '#3a3f48', mini: '#e05a4a' };
-
-  function drawAttacker(m, x, y, r, dist) {
-    // screen-space heading, smoothed, so birds/planes/missiles point where they move
-    if (m.sx != null) {
-      const vx = x - m.sx, vy = y - m.sy;
-      if (Math.hypot(vx, vy) > 0.3) m.head = Math.atan2(vy, vx) * 0.25 + (m.head ?? Math.atan2(vy, vx)) * 0.75;
-    }
-    m.sx = x; m.sy = y;
-    if (themeKey === 'mosquito') return drawMosquito(m, x, y, r, dist);
-    const T = m.T;
-    let alpha = 1;
-    if (T.ghost) alpha = dist < 1.2 ? 0.85 : 0.15 + 0.1 * Math.sin(time * 6 + m.id);
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.translate(x, y);
-    const head = m.head ?? 0;
-    const flip = Math.cos(head) < 0;
-    if (themeKey === 'bird') drawBird(m, r, flip);
-    else if (themeKey === 'plane') drawPlane(m, r, flip, head);
-    else drawMissile(m, r, head);
-    ctx.restore();
-    ctx.globalAlpha = 1;
-    if (T.hp > 1) {
-      for (let i = 0; i < T.hp; i++) {
-        ctx.fillStyle = i < m.hp ? '#ffcf3f' : 'rgba(255,255,255,.25)';
-        ctx.beginPath(); ctx.arc(x + (i - (T.hp - 1) / 2) * 9, y - r * 1.1, 3, 0, Math.PI * 2); ctx.fill();
-      }
-    }
-    if (r < 10 && alpha > 0.5) {
-      ctx.strokeStyle = m.mode === 'attack' ? 'rgba(255,60,60,.8)' : 'rgba(255,207,63,.6)';
-      ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.stroke();
-    }
-  }
-
-  function drawBird(m, r, flip) {
-    if (flip) ctx.scale(-1, 1);
-    const flap = Math.sin(time * (m.mode === 'attack' ? 16 : 9) + m.id);
-    const col = m.hitFlash > 0 ? '#fff' : FEATHER[m.type];
-    // far wing
-    ctx.fillStyle = shade(col, -25);
-    ctx.beginPath(); ctx.moveTo(-r * 0.1, -r * 0.05);
-    ctx.quadraticCurveTo(-r * 0.2, -r * (0.2 + 0.7 * flap), r * 0.35, -r * (0.15 + 0.85 * flap));
-    ctx.quadraticCurveTo(r * 0.2, -r * 0.1, r * 0.2, 0); ctx.fill();
-    // tail
-    ctx.fillStyle = shade(col, -15);
-    ctx.beginPath(); ctx.moveTo(-r * 0.5, 0); ctx.lineTo(-r * 0.95, -r * 0.18); ctx.lineTo(-r * 0.95, r * 0.18); ctx.closePath(); ctx.fill();
-    // body
-    ctx.fillStyle = col;
-    ctx.beginPath(); ctx.ellipse(0, 0, r * 0.55, r * 0.26, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#f2efe6';
-    ctx.beginPath(); ctx.ellipse(r * 0.05, r * 0.1, r * 0.35, r * 0.13, 0, 0, Math.PI * 2); ctx.fill();
-    if (m.T.blood) { ctx.fillStyle = '#c0392b'; ctx.beginPath(); ctx.ellipse(r * 0.25, r * 0.08, r * 0.15, r * 0.1, 0, 0, Math.PI * 2); ctx.fill(); }
-    // head
-    ctx.fillStyle = col;
-    ctx.beginPath(); ctx.arc(r * 0.55, -r * 0.12, r * 0.2, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#f0a020';
-    ctx.beginPath(); ctx.moveTo(r * 0.72, -r * 0.16); ctx.lineTo(r * 0.98, -r * 0.08); ctx.lineTo(r * 0.72, -r * 0.02); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = m.mode === 'attack' ? '#ff2a2a' : '#111';
-    ctx.beginPath(); ctx.arc(r * 0.6, -r * 0.17, r * 0.045, 0, Math.PI * 2); ctx.fill();
-    if (m.mode === 'attack') { // angry brow
-      ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(1, r * 0.04);
-      ctx.beginPath(); ctx.moveTo(r * 0.5, -r * 0.3); ctx.lineTo(r * 0.68, -r * 0.23); ctx.stroke();
-    }
-    // near wing
-    ctx.fillStyle = shade(col, 15);
-    ctx.beginPath(); ctx.moveTo(-r * 0.15, 0);
-    ctx.quadraticCurveTo(-r * 0.1, -r * (0.1 + 0.8 * flap), r * 0.45, -r * (0.05 + 0.95 * flap));
-    ctx.quadraticCurveTo(r * 0.3, 0, r * 0.25, r * 0.05); ctx.fill();
-  }
-
-  function drawPlane(m, r, flip, head) {
-    ctx.rotate(flip ? head - Math.PI : head);
-    ctx.rotate(Math.sin(m.phase * 1.3) * 0.15);
-    if (flip) ctx.scale(-1, 1);
-    const col = m.hitFlash > 0 ? '#fff' : PAINT[m.type];
-    // far wing
-    ctx.fillStyle = shade(col, -35);
-    ctx.beginPath(); ctx.moveTo(r * 0.15, -r * 0.05); ctx.lineTo(-r * 0.2, -r * 0.55); ctx.lineTo(-r * 0.35, -r * 0.55); ctx.lineTo(-r * 0.15, -r * 0.05); ctx.fill();
-    // tail fin
-    ctx.fillStyle = shade(col, -15);
-    ctx.beginPath(); ctx.moveTo(-r * 0.6, -r * 0.05); ctx.lineTo(-r * 0.85, -r * 0.4); ctx.lineTo(-r * 0.95, -r * 0.4); ctx.lineTo(-r * 0.85, 0); ctx.fill();
-    // fuselage
-    ctx.fillStyle = col;
-    ctx.beginPath(); ctx.ellipse(0, 0, r * 0.95, r * 0.15, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = Math.max(0.6, r * 0.02); ctx.stroke();
-    // stripe and windows
-    ctx.fillStyle = m.T.blood ? '#7a2a1a' : '#c0392b';
-    ctx.fillRect(-r * 0.7, r * 0.02, r * 1.4, r * 0.04);
-    ctx.fillStyle = '#2a3a4a';
-    for (let i = 0; i < 6; i++) { ctx.beginPath(); ctx.arc(-r * 0.4 + i * r * 0.15, -r * 0.04, r * 0.03, 0, Math.PI * 2); ctx.fill(); }
-    ctx.beginPath(); ctx.ellipse(r * 0.75, -r * 0.05, r * 0.1, r * 0.05, 0, 0, Math.PI * 2); ctx.fill();
-    // near wing
-    ctx.fillStyle = shade(col, -10);
-    ctx.beginPath(); ctx.moveTo(r * 0.2, r * 0.05); ctx.lineTo(-r * 0.25, r * 0.6); ctx.lineTo(-r * 0.42, r * 0.6); ctx.lineTo(-r * 0.15, r * 0.05); ctx.fill();
-    // propeller blur
-    ctx.fillStyle = 'rgba(40,40,40,.35)';
-    ctx.beginPath(); ctx.ellipse(r * 0.97, 0, r * 0.03, r * 0.3, 0, 0, Math.PI * 2); ctx.fill();
-    if (m.mode === 'attack') { // exhaust smoke
-      ctx.fillStyle = 'rgba(200,200,200,.35)';
-      for (let i = 1; i <= 3; i++) { ctx.beginPath(); ctx.arc(-r * (0.95 + i * 0.18), Math.sin(time * 9 + i) * r * 0.05, r * 0.07 * i, 0, Math.PI * 2); ctx.fill(); }
-    }
-  }
-
-  function drawMissile(m, r, head) {
-    // resting missiles hang nose-down; attacking ones point where they fly
-    const ang = m.mode === 'attack' ? head : Math.PI / 2 + Math.sin(m.phase) * 0.2;
-    ctx.rotate(ang);
-    const col = m.hitFlash > 0 ? '#fff' : PAINT[m.type];
-    // flame
-    if (m.mode === 'attack' || m.mode === 'flee') {
-      const fl = 0.6 + 0.4 * Math.random();
-      ctx.fillStyle = 'rgba(255,140,30,.85)';
-      ctx.beginPath(); ctx.moveTo(-r * 0.75, -r * 0.09); ctx.lineTo(-r * (0.75 + 0.6 * fl), 0); ctx.lineTo(-r * 0.75, r * 0.09); ctx.fill();
-      ctx.fillStyle = 'rgba(255,240,150,.9)';
-      ctx.beginPath(); ctx.moveTo(-r * 0.75, -r * 0.05); ctx.lineTo(-r * (0.75 + 0.3 * fl), 0); ctx.lineTo(-r * 0.75, r * 0.05); ctx.fill();
-    } else {
-      ctx.fillStyle = 'rgba(200,200,200,.3)';
-      ctx.beginPath(); ctx.arc(-r * 0.85, 0, r * 0.08 + Math.sin(time * 5 + m.id) * r * 0.02, 0, Math.PI * 2); ctx.fill();
-    }
-    // fins
-    ctx.fillStyle = shade(col, -30);
-    ctx.beginPath(); ctx.moveTo(-r * 0.45, -r * 0.1); ctx.lineTo(-r * 0.75, -r * 0.32); ctx.lineTo(-r * 0.75, -r * 0.1); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(-r * 0.45, r * 0.1); ctx.lineTo(-r * 0.75, r * 0.32); ctx.lineTo(-r * 0.75, r * 0.1); ctx.fill();
-    // body
-    ctx.fillStyle = col;
-    ctx.fillRect(-r * 0.75, -r * 0.1, r * 1.2, r * 0.2);
-    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = Math.max(0.6, r * 0.02); ctx.strokeRect(-r * 0.75, -r * 0.1, r * 1.2, r * 0.2);
-    // warning band
-    ctx.fillStyle = '#ffcf3f'; ctx.fillRect(-r * 0.1, -r * 0.1, r * 0.08, r * 0.2);
-    // nose cone
-    ctx.fillStyle = m.T.split ? '#4fbf6a' : '#c0392b';
-    ctx.beginPath(); ctx.moveTo(r * 0.45, -r * 0.1); ctx.quadraticCurveTo(r * 0.8, -r * 0.06, r * 0.88, 0); ctx.quadraticCurveTo(r * 0.8, r * 0.06, r * 0.45, r * 0.1); ctx.fill();
-    // blinking light
-    if (m.mode === 'attack' && Math.sin(time * 20) > 0) { ctx.fillStyle = '#ff2a2a'; ctx.beginPath(); ctx.arc(r * 0.3, 0, r * 0.05, 0, Math.PI * 2); ctx.fill(); }
-  }
-
-  function shade(hex, amt) {
-    const n = parseInt(hex.slice(1), 16);
-    const c = v => Math.max(0, Math.min(255, v + amt));
-    return 'rgb(' + c(n >> 16) + ',' + c((n >> 8) & 255) + ',' + c(n & 255) + ')';
-  }
-
-  function drawEdgeArrow(v, dist) {
-    const ang = Math.atan2(-v[1], v[0] || 1e-3);
-    const margin = 26, tx = Math.cos(ang), ty = Math.sin(ang);
-    const s = Math.min(tx ? (W / 2 - margin) / Math.abs(tx) : Infinity, ty ? (H / 2 - margin) / Math.abs(ty) : Infinity);
-    const danger = Math.max(0, Math.min(1, (2.5 - dist) / 2));
-    const size = 10 + danger * 9;
-    ctx.save();
-    ctx.translate(W / 2 + tx * s, H / 2 + ty * s); ctx.rotate(ang);
-    ctx.globalAlpha = 0.6 + danger * 0.4; ctx.fillStyle = '#ff3b3b';
-    ctx.beginPath(); ctx.moveTo(size, 0); ctx.lineTo(-size * 0.7, size * 0.7); ctx.lineTo(-size * 0.7, -size * 0.7); ctx.closePath(); ctx.fill();
-    ctx.restore();
-  }
-
-  function drawRadar() {
-    const R = 50, cx = 16 + R, cy = H - (16 + R) - 4;
-    ctx.save();
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    ctx.beginPath(); ctx.arc(cx, cy, R / 2, 0, Math.PI * 2); ctx.stroke();
-    // view cone
-    ctx.fillStyle = 'rgba(255,255,255,.12)';
-    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, R, -Math.PI / 2 - 0.5, -Math.PI / 2 + 0.5); ctx.closePath(); ctx.fill();
-    const [fx, fz] = forwardFlat(), rx = -fz, rz = fx;
-    const scale = R / Math.max(3, areaR);
-    for (const m of mosquitoes) {
-      if (m.T.ghost) continue;
-      const dx = m.pos[0] - camPos[0], dz = m.pos[2] - camPos[2];
-      let px = dx * rx + dz * rz, py = -(dx * fx + dz * fz);
-      px *= scale; py *= scale;
-      const l = Math.hypot(px, py), edge = l > R - 4;
-      if (edge) { px *= (R - 4) / l; py *= (R - 4) / l; }
-      ctx.fillStyle = m.mode === 'attack' ? '#ff3b3b' : '#ffcf3f';
-      ctx.globalAlpha = edge ? 0.55 : 1;
-      ctx.beginPath(); ctx.arc(cx + px, cy + py, m.mode === 'attack' ? 4 : 3, 0, Math.PI * 2); ctx.fill();
-    }
-    ctx.globalAlpha = 1; ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.moveTo(cx, cy - 6); ctx.lineTo(cx - 4, cy + 4); ctx.lineTo(cx + 4, cy + 4); ctx.closePath(); ctx.fill();
-    ctx.restore();
-  }
-
-  function render() {
-    ctx.clearRect(0, 0, W, H);
-    if (state === 'play' || state === 'over') {
-      let closestAttack = Infinity;
-      const list = [];
-      for (const m of mosquitoes) {
-        const dist = len(sub(m.pos, camPos));
-        if (m.mode === 'attack') closestAttack = Math.min(closestAttack, dist);
-        const pr = project(m.pos);
-        const r = pr.behind ? 0 : (m.T.size * theme.size * pr.f) / pr.depth;
-        const on = !pr.behind && pr.x > -r && pr.x < W + r && pr.y > -r && pr.y < H + r;
-        m.screen = on ? { x: pr.x, y: pr.y, r, depth: pr.depth } : null;
-        list.push({ m, pr, r, dist, on });
-      }
-      list.sort((a, b) => b.dist - a.dist);
-      for (const it of list) {
-        if (it.on) drawAttacker(it.m, it.pr.x, it.pr.y, it.r, it.dist);
-        else if (it.m.mode === 'attack' && !it.m.T.ghost) drawEdgeArrow(it.pr.v, it.dist);
-      }
-      if (closestAttack < 1.2 && state === 'play') {
-        const a = Math.min(0.45, (1.2 - closestAttack) * 0.5) * (0.7 + 0.3 * Math.sin(time * 12));
-        const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
-        g.addColorStop(0, 'rgba(255,0,0,0)'); g.addColorStop(1, `rgba(255,0,0,${a})`);
-        ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-      }
-      if (state === 'play') drawRadar();
-    }
-    for (const pt of particles) {
-      ctx.globalAlpha = Math.max(0, Math.min(1, pt.life * 2));
-      if (pt.ring) { ctx.strokeStyle = pt.c || 'rgba(255,255,255,.8)'; ctx.lineWidth = pt.c ? 5 : 2; ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2); ctx.stroke(); }
-      else if (pt.feather) { ctx.fillStyle = pt.c; ctx.beginPath(); ctx.ellipse(pt.x, pt.y, pt.r * 2, pt.r * 0.7, pt.life * 6, 0, Math.PI * 2); ctx.fill(); }
-      else { ctx.fillStyle = pt.c; ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2); ctx.fill(); }
-    }
-    ctx.globalAlpha = 1;
-    ctx.font = 'bold 18px Vazirmatn, Tahoma, sans-serif'; ctx.textAlign = 'center';
-    for (const pp of popups) {
-      ctx.globalAlpha = Math.min(1, pp.life * 2);
-      ctx.fillStyle = '#000'; ctx.fillText(pp.text, pp.x + 1, pp.y + 1);
-      ctx.fillStyle = '#ffcf3f'; ctx.fillText(pp.text, pp.x, pp.y);
-    }
-    ctx.globalAlpha = 1;
-  }
-
-  function step(dt) { update(dt); render(); }
-  function loop(t) {
-    if (xrSession) return; // the XR session drives frames while it runs
-    const dt = Math.min(0.05, (t - lastT) / 1000 || 0);
-    lastT = t;
-    step(dt);
+// ---------- WebXR (Android Chrome + ARCore: real walking tracking) ----------
+let xrSession = null, xrRef = null, xrGL = null, xrFloor = false, xrLastT = 0;
+async function xrSupported() { try { return !!(navigator.xr && await navigator.xr.isSessionSupported('immersive-ar')); } catch (_) { return false; } }
+async function startXR() {
+  const session = await navigator.xr.requestSession('immersive-ar', { optionalFeatures: ['dom-overlay', 'local-floor'], domOverlay: { root: overlayEl } });
+  const glc = document.createElement('canvas');
+  xrGL = glc.getContext('webgl', { xrCompatible: true, alpha: true });
+  await session.updateRenderState({ baseLayer: new XRWebGLLayer(session, xrGL) });
+  try { xrRef = await session.requestReferenceSpace('local-floor'); xrFloor = true; }
+  catch (_) { xrRef = await session.requestReferenceSpace('local'); xrFloor = false; }
+  xrSession = session; mode = 'xr';
+  document.body.classList.add('xr'); video.classList.add('hidden');
+  session.addEventListener('end', () => {
+    xrSession = null; mode = 'sensor'; projM = null;
+    document.body.classList.remove('xr'); video.classList.remove('hidden');
+    camera.fov = fovDeg; camera.updateProjectionMatrix();
+    if (state === 'play') gameOver(true);
     requestAnimationFrame(loop);
+  });
+  session.requestAnimationFrame(onXRFrame);
+}
+function onXRFrame(t, frame) {
+  const session = frame.session;
+  session.requestAnimationFrame(onXRFrame);
+  xrGL.bindFramebuffer(xrGL.FRAMEBUFFER, session.renderState.baseLayer.framebuffer);
+  xrGL.clearColor(0, 0, 0, 0); xrGL.clear(xrGL.COLOR_BUFFER_BIT);
+  const pose = frame.getViewerPose(xrRef);
+  if (pose) {
+    const p = pose.transform.position, o = pose.transform.orientation;
+    camPos.set(p.x, xrFloor ? p.y : p.y + 1.4, p.z);
+    camQ.set(o.x, o.y, o.z, o.w);
+    projM = pose.views[0].projectionMatrix;
   }
-  requestAnimationFrame(loop);
+  const dt = Math.min(0.05, (t - xrLastT) / 1000 || 0); xrLastT = t;
+  step(dt);
+}
 
-  // ---------- Start ----------
-  try { const b = +localStorage.getItem('vizviz_best'); if (b) $('best').textContent = 'بهترین امتیاز: ' + fa(b); } catch (_) {}
-  $('sizes').addEventListener('click', e => {
-    const b = e.target.closest('button'); if (!b) return;
-    for (const x of $('sizes').children) x.classList.toggle('on', x === b);
-    areaR = +b.dataset.r;
-  });
-  $('themes').addEventListener('click', e => {
-    const b = e.target.closest('button'); if (!b) return;
-    themeKey = b.dataset.t;
-    try { localStorage.setItem('vizviz_theme', themeKey); } catch (_) {}
-    applyTheme();
-  });
-  applyTheme();
-  let canXR = false;
-  xrSupported().then(ok => {
-    canXR = ok;
-    $('modeNote').textContent = ok
-      ? 'گوشیت از واقعیت افزوده‌ی کامل پشتیبانی می‌کنه: راه رفتنت دقیق دنبال می‌شه.'
-      : 'راه رفتنت با شمردن قدم‌ها دنبال می‌شه. گوشی رو جلوت نگه دار و آروم راه برو.';
-  });
-
-  async function begin() {
-    $('startScreen').classList.add('hidden');
-    $('overScreen').classList.add('hidden');
-    $('hud').classList.remove('hidden');
-    if (!actx) initAudio();
-    if (actx && actx.state === 'suspended') actx.resume();
-    let xrOk = false;
-    if (canXR) { try { await startXR(); xrOk = true; } catch (err) { console.warn('XR failed, using sensors', err); } }
-    if (!xrOk) await Promise.all([enableSensors(), startCamera()]);
-    state = 'play';
-    resetGame();
+// ---------- Audio ----------
+let actx = null, master = null, noiseBuf = null;
+function initAudio() {
+  try {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    master = actx.createGain(); master.gain.value = 0.9; master.connect(actx.destination);
+    noiseBuf = actx.createBuffer(1, actx.sampleRate * 2, actx.sampleRate);
+    const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  } catch (_) { actx = null; }
+}
+const setP = (param, v, tc = 0.05) => param.setTargetAtTime(v, actx.currentTime, tc);
+function updateListener() {
+  if (!actx) return;
+  const L = actx.listener, f = V(0, 0, -1).applyQuaternion(camQ), u = V(0, 1, 0).applyQuaternion(camQ);
+  if (L.forwardX) {
+    setP(L.forwardX, f.x, 0.02); setP(L.forwardY, f.y, 0.02); setP(L.forwardZ, f.z, 0.02);
+    setP(L.upX, u.x, 0.02); setP(L.upY, u.y, 0.02); setP(L.upZ, u.z, 0.02);
+    setP(L.positionX, camPos.x, 0.02); setP(L.positionY, camPos.y, 0.02); setP(L.positionZ, camPos.z, 0.02);
+  } else {
+    L.setOrientation && L.setOrientation(f.x, f.y, f.z, u.x, u.y, u.z);
+    L.setPosition && L.setPosition(camPos.x, camPos.y, camPos.z);
   }
-  $('startBtn').addEventListener('click', begin);
-  $('againBtn').addEventListener('click', begin);
-
-  window.__vizviz = {
-    get state() { return state; }, get mosquitoes() { return mosquitoes; }, get score() { return score; },
-    get health() { return health; }, get level() { return level; }, camPos, swat
+}
+function makeVoice(basePitch, vol) {
+  if (!actx) return null;
+  const S = theme.sound, pitch = basePitch * S.f;
+  const out = actx.createGain(); out.gain.value = 0;
+  const pan = actx.createPanner();
+  pan.panningModel = 'HRTF'; pan.distanceModel = 'inverse'; pan.refDistance = 0.6; pan.rolloffFactor = 1.2; pan.maxDistance = 40;
+  out.connect(pan); pan.connect(master);
+  const nodes = [];
+  const osc = actx.createOscillator(); osc.type = S.wave; osc.frequency.value = pitch;
+  const lfo = actx.createOscillator(); lfo.frequency.value = S.lfo * rand(0.85, 1.15);
+  const lg = actx.createGain(); lg.gain.value = pitch * S.depth; lfo.connect(lg); lg.connect(osc.frequency);
+  const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = pitch * 2.2; bp.Q.value = 1.1;
+  const og = actx.createGain(); og.gain.value = S.tone;
+  osc.connect(bp); bp.connect(og); og.connect(out);
+  osc.start(); lfo.start(); nodes.push(osc, lfo);
+  let nf = null;
+  if (S.noise) {
+    const ns = actx.createBufferSource(); ns.buffer = noiseBuf; ns.loop = true;
+    nf = actx.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = S.noise; nf.Q.value = 0.9;
+    const ng = actx.createGain(); ng.gain.value = S.noiseVol;
+    ns.connect(nf); nf.connect(ng); ng.connect(out); ns.start(); nodes.push(ns);
+  }
+  return { out, pan, osc, nf, pitch, vol, nodes };
+}
+function moveVoice(b, p, loud, pitchMul) {
+  if (!b) return;
+  if (b.pan.positionX) { setP(b.pan.positionX, p.x, 0.03); setP(b.pan.positionY, p.y, 0.03); setP(b.pan.positionZ, p.z, 0.03); }
+  else b.pan.setPosition(p.x, p.y, p.z);
+  setP(b.out.gain, b.vol * loud, 0.1);
+  setP(b.osc.frequency, b.pitch * pitchMul, 0.1);
+  if (b.nf) setP(b.nf.frequency, theme.sound.noise * pitchMul, 0.1);
+}
+function stopVoice(b) {
+  if (!b) return;
+  b.out.gain.setTargetAtTime(0, actx.currentTime, 0.05);
+  setTimeout(() => { try { b.nodes.forEach(n => n.stop()); b.pan.disconnect(); } catch (_) {} }, 400);
+}
+function sfx(type) {
+  if (!actx) return;
+  const t = actx.currentTime;
+  const tone = (f0, f1, dur, vol, wave) => {
+    const o = actx.createOscillator(), g = actx.createGain(); o.connect(g); g.connect(master);
+    o.type = wave; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur * 0.8);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur); o.start(t); o.stop(t + dur + 0.01);
   };
-})();
+  const noise = (dur, vol, f0, f1) => {
+    if (!noiseBuf) return;
+    const s = actx.createBufferSource(); s.buffer = noiseBuf;
+    const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = actx.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    s.connect(f); f.connect(g); g.connect(master); s.start(t); s.stop(t + dur);
+  };
+  if (type === 'splat') tone(320, 60, 0.15, 0.5, 'triangle');
+  else if (type === 'hit') tone(700, 300, 0.08, 0.2, 'square');
+  else if (type === 'bite') tone(140, 70, 0.35, 0.5, 'sawtooth');
+  else if (type === 'alert') tone(500, 900, 0.18, 0.15, 'sine');
+  else if (type === 'level') tone(440, 880, 0.4, 0.25, 'sine');
+  else if (type === 'boom') { noise(0.9, 0.9, 2500, 80); tone(90, 30, 0.6, 0.6, 'sine'); }
+  else if (type === 'launch') noise(0.6, 0.35, 600, 4000);
+  else if (type === 'flap') noise(0.25, 0.25, 1500, 300);
+}
+
+// ---------- Themes ----------
+const THEMES = {
+  mosquito: { one: 'پشه', many: 'پشه‌ها', hitTitle: 'نیش خوردی!',
+    intro: 'پشه‌ها توی خونه پخش شدن: بالای کمد، زیر میز، توی راهرو.',
+    speed: 1, turn: 7, bank: 0, aggro: 1, size: 0.11, impact: 'bite',
+    sound: { wave: 'sawtooth', f: 1, lfo: 22, depth: 0.04, tone: 1 } },
+  bird: { one: 'پرنده', many: 'پرنده‌ها', hitTitle: 'نوک خوردی!',
+    intro: 'یه دسته پرنده‌ی عصبانی این اطراف دور می‌زنن: بالای کمد، کنار پنجره، توی راهرو.',
+    speed: 1.5, turn: 2.6, bank: 0.45, aggro: 1.35, size: 0.17, impact: 'peck', cruise: 0.55, orbit: 0.7,
+    sound: { wave: 'sine', f: 3.4, lfo: 6, depth: 0.25, tone: 0.5, noise: 900, noiseVol: 0.5 } },
+  plane: { one: 'هواپیما', many: 'هواپیماها', hitTitle: 'هواپیما بهت خورد!',
+    intro: 'چند تا هواپیمای کوچیک این اطراف دور می‌زنن و منتظرن نزدیکشون بشی.',
+    speed: 1.9, turn: 1.5, bank: 0.9, aggro: 1.6, size: 0.22, impact: 'pass', cruise: 0.75, orbit: 1.0,
+    sound: { wave: 'sawtooth', f: 0.2, lfo: 30, depth: 0.02, tone: 0.6, noise: 1400, noiseVol: 0.9 } },
+  missile: { one: 'موشک', many: 'موشک‌ها', hitTitle: 'منفجر شدی!',
+    intro: 'چند تا موشک کوچیک این اطراف معلق موندن و به طرفت نشونه گرفتن. نزدیکشون که بشی شلیک می‌شن.',
+    speed: 2.4, turn: 1.3, bank: 0, aggro: 1.7, size: 0.18, impact: 'explode',
+    sound: { wave: 'sawtooth', f: 0.5, lfo: 50, depth: 0.05, tone: 0.25, noise: 1800, noiseVol: 1.1 } }
+};
+let themeKey = 'mosquito';
+try { const t = localStorage.getItem('vizviz_theme'); if (THEMES[t]) themeKey = t; } catch (_) {}
+let theme = THEMES[themeKey];
+function applyTheme() {
+  theme = THEMES[themeKey];
+  for (const x of $('themes').children) x.classList.toggle('on', x.dataset.t === themeKey);
+  $('intro').textContent = theme.intro + ' راه برو، گوشی رو به اطراف بگیر و پیداشون کن. وقتی بهشون نزدیک بشی بهت حمله می‌کنن، پس قبل از اینکه بهت برسن با انگشت بزن روشون.';
+  $('intro2').textContent = 'رادار پایین صفحه نشون می‌ده ' + theme.many + ' کدوم طرف و چقدر دورن. با هدفون صداشون رو هم می‌شنوی.';
+  $('leftLabel').textContent = theme.many + 'ی مونده';
+}
+
+// ---------- Variants (same for every theme) ----------
+const TYPES = {
+  normal:   { hp: 1, speed: 0.45, scale: 1,    dmg: 8,  aggro: 1.6, pitch: 560, vol: 0.5,  score: 10 },
+  fast:     { hp: 1, speed: 0.75, scale: 0.85, dmg: 7,  aggro: 2.0, pitch: 700, vol: 0.45, score: 20, agile: true },
+  fat:      { hp: 3, speed: 0.3,  scale: 1.45, dmg: 15, aggro: 1.4, pitch: 400, vol: 0.6,  score: 40 },
+  splitter: { hp: 1, speed: 0.45, scale: 1.1,  dmg: 8,  aggro: 1.6, pitch: 500, vol: 0.5,  score: 25, split: true },
+  ghost:    { hp: 1, speed: 0.5,  scale: 1,    dmg: 10, aggro: 1.5, pitch: 620, vol: 0.7,  score: 35, ghost: true },
+  mini:     { hp: 1, speed: 0.7,  scale: 0.6,  dmg: 4,  aggro: 3.0, pitch: 820, vol: 0.35, score: 10, agile: true }
+};
+const PALETTE = {
+  mosquito: { normal: 0x2a2622, fast: 0x4a3a22, fat: 0x3a1d1d, splitter: 0x1f2b22, ghost: 0x303848, mini: 0x2a2622 },
+  bird:     { normal: 0x7a5a3c, fast: 0x34507a, fat: 0x5e4632, splitter: 0x4a6e42, ghost: 0x8a909a, mini: 0xa07a50 },
+  plane:    { normal: 0xc0392b, fast: 0xe0a020, fat: 0x56653f, splitter: 0x2f6fb5, ghost: 0x2c3038, mini: 0xc0392b },
+  missile:  { normal: 0xb8bcc2, fast: 0xd8b040, fat: 0x5f6b4a, splitter: 0x6f8fb0, ghost: 0x2c3038, mini: 0xd05040 }
+};
+
+// ---------- 3D models (nose points along +Z) ----------
+const G = {}; // shared geometries
+function geo(key, make) { return G[key] || (G[key] = make()); }
+function stdMat(color, opts = {}) { return new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.05, ...opts }); }
+function mesh(g, m, x = 0, y = 0, z = 0) { const o = new THREE.Mesh(g, m); o.position.set(x, y, z); return o; }
+
+function buildPlane(color, ghost) {
+  const root = new THREE.Group(), mats = [];
+  const body = stdMat(ghost ? 0x3a3f48 : 0xf2f2f0, { metalness: 0.3, roughness: 0.35 }); mats.push(body);
+  const accent = stdMat(color, { metalness: 0.2, roughness: 0.45 }); mats.push(accent);
+  const dark = stdMat(0x1e2730, { roughness: 0.2, metalness: 0.5 }); mats.push(dark);
+  const fus = mesh(geo('pf', () => new THREE.CylinderGeometry(0.026, 0.022, 0.34, 18).rotateX(Math.PI / 2)), body); root.add(fus);
+  const nose = mesh(geo('pn', () => new THREE.SphereGeometry(0.026, 18, 12).scale(1, 1, 2.0)), body, 0, 0, 0.17); root.add(nose);
+  const tail = mesh(geo('pt', () => new THREE.ConeGeometry(0.022, 0.09, 18).rotateX(-Math.PI / 2)), body, 0, 0.004, -0.215); root.add(tail);
+  const cockpit = mesh(geo('pc', () => new THREE.SphereGeometry(0.02, 12, 8).scale(1, 0.5, 1.4)), dark, 0, 0.014, 0.17); root.add(cockpit);
+  // swept wings with slight dihedral
+  const wingShape = new THREE.Shape(); wingShape.moveTo(0, 0.05); wingShape.lineTo(0.22, -0.035); wingShape.lineTo(0.22, -0.065); wingShape.lineTo(0, -0.03);
+  const wg = geo('pw', () => new THREE.ExtrudeGeometry(wingShape, { depth: 0.006, bevelEnabled: false }).rotateX(Math.PI / 2));
+  for (const s of [1, -1]) {
+    const w = mesh(wg, body); w.scale.x = s; w.position.set(s * 0.015, 0.0, 0.0); w.rotation.z = s * 0.06; root.add(w);
+    const eng = mesh(geo('pe', () => new THREE.CylinderGeometry(0.012, 0.011, 0.06, 14).rotateX(Math.PI / 2)), accent, s * 0.075, -0.018, 0.035); root.add(eng);
+    const intake = mesh(geo('pi', () => new THREE.CircleGeometry(0.0105, 14)), dark, s * 0.075, -0.018, 0.0655); root.add(intake);
+    const st = mesh(geo('ps', () => new THREE.BoxGeometry(0.075, 0.004, 0.03)), body, s * 0.04, 0.008, -0.21); st.rotation.z = s * 0.08; root.add(st);
+    const lamp = mesh(geo('pl', () => new THREE.SphereGeometry(0.005, 8, 6)), new THREE.MeshBasicMaterial({ color: s > 0 ? 0xff2020 : 0x20ff40 }), s * 0.222, 0.012, -0.05);
+    root.add(lamp);
+  }
+  const fin = new THREE.Shape(); fin.moveTo(0, 0); fin.lineTo(-0.05, 0.065); fin.lineTo(-0.075, 0.065); fin.lineTo(-0.06, 0);
+  const fg = mesh(geo('pfin', () => new THREE.ExtrudeGeometry(fin, { depth: 0.004, bevelEnabled: false }).rotateY(-Math.PI / 2)), accent, 0.002, 0.012, -0.17);
+  root.add(fg);
+  const stripe = mesh(geo('pstr', () => new THREE.BoxGeometry(0.0535, 0.006, 0.26)), accent, 0, -0.006, 0.0); root.add(stripe);
+  return { root, mats, parts: {} };
+}
+
+function buildMissile(color, ghost) {
+  const root = new THREE.Group(), mats = [];
+  const body = stdMat(ghost ? 0x343a44 : color, { metalness: 0.45, roughness: 0.35 }); mats.push(body);
+  const nose = stdMat(0x9a2a22, { metalness: 0.3, roughness: 0.4 }); mats.push(nose);
+  const fin = stdMat(0x3a3e44, { metalness: 0.4, roughness: 0.5 }); mats.push(fin);
+  const band = stdMat(0xe8c040, { roughness: 0.5 }); mats.push(band);
+  root.add(mesh(geo('mb', () => new THREE.CylinderGeometry(0.022, 0.022, 0.36, 20).rotateX(Math.PI / 2)), body));
+  root.add(mesh(geo('mn', () => new THREE.ConeGeometry(0.022, 0.1, 20).rotateX(Math.PI / 2)), nose, 0, 0, 0.23));
+  root.add(mesh(geo('mband', () => new THREE.CylinderGeometry(0.0225, 0.0225, 0.015, 20).rotateX(Math.PI / 2)), band, 0, 0, 0.12));
+  root.add(mesh(geo('mnz', () => new THREE.CylinderGeometry(0.016, 0.02, 0.03, 16).rotateX(Math.PI / 2)), fin, 0, 0, -0.195));
+  const fg = geo('mf', () => { const s = new THREE.Shape(); s.moveTo(0, 0); s.lineTo(0.05, -0.03); s.lineTo(0.05, -0.075); s.lineTo(0, -0.07); return new THREE.ExtrudeGeometry(s, { depth: 0.003, bevelEnabled: false }).rotateY(Math.PI / 2); });
+  const cg = geo('mcf', () => new THREE.BoxGeometry(0.003, 0.03, 0.04));
+  for (let i = 0; i < 4; i++) {
+    const holder = new THREE.Group(); holder.rotation.z = i * Math.PI / 2 + Math.PI / 4;
+    const f = mesh(fg, fin, 0, 0.018, -0.105); holder.add(f);
+    const c = mesh(cg, fin, 0, 0.034, 0.06); holder.add(c);
+    root.add(holder);
+  }
+  // exhaust flame (only while flying)
+  const flame = new THREE.Group(); flame.position.z = -0.21;
+  const fo = mesh(geo('mfo', () => new THREE.ConeGeometry(0.018, 0.14, 14, 1, true).rotateX(-Math.PI / 2).translate(0, 0, -0.07)),
+    new THREE.MeshBasicMaterial({ color: 0xff7a1a, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }));
+  const fi = mesh(geo('mfi', () => new THREE.ConeGeometry(0.01, 0.08, 12, 1, true).rotateX(-Math.PI / 2).translate(0, 0, -0.04)),
+    new THREE.MeshBasicMaterial({ color: 0xfff2a0, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false }));
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: 0xff9030, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  glow.scale.set(0.12, 0.12, 1);
+  flame.add(fo, fi, glow); flame.visible = false; root.add(flame);
+  return { root, mats, parts: { flame } };
+}
+
+function wingGeo(key, pts) {
+  return geo(key, () => { const s = new THREE.Shape(); s.moveTo(pts[0][0], pts[0][1]); for (const p of pts.slice(1)) s.lineTo(p[0], p[1]); return new THREE.ShapeGeometry(s).rotateX(-Math.PI / 2); });
+}
+function buildBird(color, ghost) {
+  const root = new THREE.Group(), mats = [];
+  const feather = stdMat(ghost ? 0x8a909a : color, { roughness: 0.9, side: THREE.DoubleSide }); mats.push(feather);
+  const belly = stdMat(0xeee6d6, { roughness: 0.9 }); mats.push(belly);
+  const beakM = stdMat(0xe8a020, { roughness: 0.5 }); mats.push(beakM);
+  const eyeM = new THREE.MeshBasicMaterial({ color: 0x111111 });
+  root.add(mesh(geo('bb', () => new THREE.SphereGeometry(0.045, 18, 12).scale(0.85, 0.8, 1.6)), feather));
+  root.add(mesh(geo('bbl', () => new THREE.SphereGeometry(0.04, 16, 10).scale(0.8, 0.7, 1.4)), belly, 0, -0.012, 0.01));
+  root.add(mesh(geo('bh', () => new THREE.SphereGeometry(0.03, 16, 12)), feather, 0, 0.022, 0.075));
+  root.add(mesh(geo('bk', () => new THREE.ConeGeometry(0.009, 0.035, 10).rotateX(Math.PI / 2)), beakM, 0, 0.018, 0.115));
+  for (const s of [1, -1]) root.add(mesh(geo('be', () => new THREE.SphereGeometry(0.0065, 8, 6)), eyeM, s * 0.022, 0.03, 0.093));
+  const tail = mesh(wingGeo('bt', [[0, 0], [0.03, -0.075], [0, -0.065], [-0.03, -0.075]]), feather, 0, 0.004, -0.06); root.add(tail);
+  // two-segment wings that flap with a lag, like a real bird
+  const inner = wingGeo('bwi', [[0, 0.03], [0.09, 0.02], [0.09, -0.035], [0, -0.03]]);
+  const outer = wingGeo('bwo', [[0, 0.02], [0.05, 0.012], [0.1, -0.02], [0.05, -0.045], [0, -0.035]]);
+  const wings = [];
+  for (const s of [1, -1]) {
+    const shoulder = new THREE.Group(); shoulder.position.set(s * 0.025, 0.018, 0.01); shoulder.scale.x = s;
+    shoulder.add(mesh(inner, feather));
+    const elbow = new THREE.Group(); elbow.position.x = 0.088; elbow.add(mesh(outer, feather)); shoulder.add(elbow);
+    root.add(shoulder); wings.push({ shoulder, elbow, s });
+  }
+  return { root, mats, parts: { wings, eyeM } };
+}
+
+function buildMosquito(color, ghost) {
+  const root = new THREE.Group(), mats = [];
+  const body = stdMat(ghost ? 0x404858 : color, { roughness: 0.5 }); mats.push(body);
+  const wingM = new THREE.MeshBasicMaterial({ color: 0xdfe8f0, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false });
+  root.add(mesh(geo('qa', () => new THREE.SphereGeometry(0.012, 12, 8).scale(1, 0.9, 3.4).translate(0, -0.006, -0.05)), body));
+  root.add(mesh(geo('qt', () => new THREE.SphereGeometry(0.015, 12, 10).scale(1, 1, 1.2)), body));
+  root.add(mesh(geo('qh', () => new THREE.SphereGeometry(0.009, 10, 8)), body, 0, -0.002, 0.021));
+  root.add(mesh(geo('qp', () => new THREE.CylinderGeometry(0.0012, 0.0006, 0.04, 5).rotateX(Math.PI / 2 + 0.35)), body, 0, -0.01, 0.045));
+  const legG = geo('ql', () => new THREE.CylinderGeometry(0.0009, 0.0006, 0.065, 4).translate(0, -0.0325, 0));
+  for (const s of [1, -1]) for (let i = 0; i < 3; i++) {
+    const l = mesh(legG, body, s * 0.006, -0.008, 0.01 - i * 0.01);
+    l.rotation.z = s * 0.9; l.rotation.x = (i - 1) * 0.6; root.add(l);
+  }
+  const wg = wingGeo('qw', [[0, 0.006], [0.05, 0.004], [0.06, -0.006], [0.05, -0.014], [0, -0.008]]);
+  const wings = [];
+  for (const s of [1, -1]) { const p = new THREE.Group(); p.position.set(s * 0.006, 0.01, 0); p.scale.x = s; p.add(mesh(wg, wingM)); root.add(p); wings.push({ p, s }); }
+  return { root, mats, parts: { qwings: wings } };
+}
+
+let _glowTex = null;
+function glowTex() {
+  if (_glowTex) return _glowTex;
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.3, 'rgba(255,255,255,.5)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  return (_glowTex = new THREE.CanvasTexture(c));
+}
+
+// smoke puffs for missiles and falling planes
+const puffs = [];
+const puffGeo = new THREE.SphereGeometry(1, 8, 6);
+function puff(pos, size, color = 0xbbbbbb, life = 1.2) {
+  const m = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.45, depthWrite: false }));
+  m.position.copy(pos); m.scale.setScalar(size); scene.add(m);
+  puffs.push({ m, life, max: life, size });
+}
+
+// ---------- Game state ----------
+let state = 'menu';
+let areaR = 6;
+let origin = V();
+let mosquitoes = [], wrecks = [], particles = [], popups = [];
+let score = 0, health = 100, level = 0, levelTime = 0, levelBreak = 0;
+let combo = 0, comboTimer = 0, biteTimes = [], itchUntil = 0, shake = 0;
+let lastT = 0, time = 0, nextId = 1;
+const MAX_VOICES = 7;
+
+function levelPlan(n) {
+  const count = 4 + Math.floor(n * 1.5);
+  const pool = [['normal', 1]];
+  if (n >= 3) pool.push(['fast', 0.25 + 0.03 * n]);
+  if (n >= 4) pool.push(['fat', 0.25]);
+  if (n >= 5) pool.push(['splitter', 0.25]);
+  if (n >= 7) pool.push(['ghost', 0.2]);
+  return { count, pool, speedMul: 1 + Math.min(n - 1, 10) * 0.04, aggroMul: 1 + Math.min(n - 1, 10) * 0.03 };
+}
+function pick(pool) {
+  const total = pool.reduce((s, p) => s + p[1], 0);
+  let r = Math.random() * total;
+  for (const [k, w] of pool) { r -= w; if (r <= 0) return k; }
+  return pool[0][0];
+}
+// Gentle side-to-side manoeuvres only from level 3 on; level 1-2 come straight at you.
+function weaveAmount() { return level <= 2 ? 0 : Math.min(0.6, (level - 2) * 0.1); }
+
+function hidingSpot(minD, maxD) {
+  const a = Math.random() * Math.PI * 2, d = rand(minD, maxD);
+  let y;
+  if (themeKey === 'plane' || themeKey === 'bird') y = rand(1.3, 2.3);
+  else y = Math.random() < 0.25 ? rand(0.25, 0.5) : (Math.random() < 0.3 ? rand(1.9, 2.4) : rand(0.6, 1.8));
+  return V(origin.x + Math.cos(a) * d, y, origin.z + Math.sin(a) * d);
+}
+
+function spawn(typeKey, pos, plan) {
+  const T = TYPES[typeKey];
+  const color = PALETTE[themeKey][typeKey];
+  const build = { plane: buildPlane, missile: buildMissile, bird: buildBird, mosquito: buildMosquito }[themeKey];
+  const model = build(color, !!T.ghost);
+  model.root.scale.setScalar(T.scale);
+  if (T.ghost) model.mats.forEach(m => { m.transparent = true; m.opacity = 0.25; });
+  scene.add(model.root);
+  const heading = V(rand(-1, 1), 0, rand(-1, 1)).normalize();
+  const m = {
+    id: nextId++, type: typeKey, T, hp: T.hp, pos: pos.clone(), home: pos.clone(), heading, speed: 0,
+    phase: Math.random() * 100, mode: 'rest', cool: 0, roll: 0, prevYaw: Math.atan2(heading.x, heading.z),
+    orbitDir: Math.random() < 0.5 ? 1 : -1,
+    speedMul: (plan ? plan.speedMul : 1) * rand(0.92, 1.08), aggro: T.aggro * theme.aggro * (plan ? plan.aggroMul : 1),
+    hitFlash: 0, voice: null, screen: null, model, puffT: 0
+  };
+  if (themeKey === 'missile') m.heading.copy(camPos).sub(m.pos).normalize();
+  mosquitoes.push(m);
+  return m;
+}
+function removeModel(model) {
+  scene.remove(model.root);
+  model.mats.forEach(m => m.dispose());
+}
+
+function startLevel() {
+  level++; levelTime = 0;
+  origin.set(camPos.x, 0, camPos.z);
+  const plan = levelPlan(level);
+  for (let i = 0; i < plan.count; i++) {
+    const frac = i / plan.count;
+    const minD = i < 2 ? 1.8 : Math.max(1.8, areaR * 0.3);
+    const maxD = i < 2 ? Math.min(2.8, Math.max(2, areaR)) : areaR * (0.6 + 0.4 * frac);
+    spawn(pick(plan.pool), hidingSpot(minD, Math.max(minD + 0.5, maxD)), plan);
+  }
+  $('level').textContent = fa(level);
+  updateLeft();
+  showBanner('مرحله‌ی ' + fa(level), fa(plan.count) + ' تا ' + theme.one + ' این اطراف قایم شدن', 2200);
+  sfx('level');
+}
+function updateLeft() { $('left').textContent = fa(mosquitoes.length); }
+function showBanner(text, sub = '', ms = 1600) {
+  bannerEl.innerHTML = text + (sub ? '<small>' + sub + '</small>' : '');
+  bannerEl.style.opacity = 1;
+  clearTimeout(showBanner._t); showBanner._t = setTimeout(() => bannerEl.style.opacity = 0, ms);
+}
+function clearWorld() {
+  mosquitoes.forEach(m => { stopVoice(m.voice); removeModel(m.model); });
+  wrecks.forEach(w => removeModel(w.model));
+  puffs.forEach(p => { scene.remove(p.m); p.m.material.dispose(); });
+  mosquitoes = []; wrecks = []; puffs.length = 0; particles = []; popups = [];
+}
+function resetGame() {
+  clearWorld();
+  score = 0; health = 100; level = 0; combo = 0; biteTimes = []; itchUntil = 0; steps = 0; levelBreak = 0;
+  $('score').textContent = fa(0); $('health').style.width = '100%';
+  startLevel();
+}
+
+function hurt(m) {
+  health = Math.max(0, health - m.T.dmg);
+  $('health').style.width = health + '%';
+  flashEl.style.transition = 'none'; flashEl.style.opacity = 1;
+  requestAnimationFrame(() => { flashEl.style.transition = 'opacity .6s'; flashEl.style.opacity = 0; });
+  try { navigator.vibrate && navigator.vibrate(theme.impact === 'explode' || theme.impact === 'pass' ? [250, 60, 120] : [120, 40, 80]); } catch (_) {}
+  combo = 0;
+  biteTimes = biteTimes.filter(t => time - t < 6); biteTimes.push(time);
+  if (biteTimes.length >= 3) { itchUntil = time + 3; biteTimes = []; showBanner(themeKey === 'mosquito' ? 'خارش!' : 'گیج شدی!', '', 1200); }
+}
+
+function impact(m) {
+  hurt(m);
+  if (theme.impact === 'explode') {
+    // the missile blows up on you and is gone
+    sfx('boom'); shake = 0.5;
+    explosionAt(W / 2, H / 2, 40);
+    m.dead = true; stopVoice(m.voice); m.voice = null; removeModel(m.model);
+  } else {
+    sfx(theme.impact === 'pass' ? 'boom' : 'bite');
+    if (theme.impact === 'pass') shake = 0.35;
+    // fly on past the player, then come round later from a new spot
+    const ahead = m.heading.clone(); ahead.y = 0; if (ahead.lengthSq() < 0.01) ahead.set(1, 0, 0); ahead.normalize();
+    const d = rand(2.5, Math.max(3, areaR * 0.7));
+    m.home.set(camPos.x + ahead.x * d + rand(-1, 1), themeKey === 'mosquito' ? rand(0.5, 2.2) : rand(1.4, 2.3), camPos.z + ahead.z * d + rand(-1, 1));
+    m.mode = 'flee'; m.cool = 6;
+  }
+  if (health <= 0) gameOver(false);
+}
+
+function explosionAt(sx, sy, n) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, s = 80 + Math.random() * 260;
+    particles.push({ x: sx, y: sy, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.5 + Math.random() * 0.4, r: 3 + Math.random() * 6,
+      c: ['#fff3b0', '#ffcf3f', '#ff8a1f', '#ff3b1f', '#555', '#333'][Math.floor(Math.random() * 6)] });
+  }
+  particles.push({ ring: true, x: sx, y: sy, life: 0.4, r: 8, c: 'rgba(255,170,40,.9)' });
+}
+
+function kill(m, sx, sy) {
+  stopVoice(m.voice); m.voice = null; m.dead = true;
+  combo++; comboTimer = 4;
+  const pts = Math.round(m.T.score * (1 + Math.floor(combo / 3) * 0.5));
+  score += pts; $('score').textContent = fa(score);
+  popups.push({ x: sx, y: sy, text: '+' + fa(pts), life: 0.9 });
+  if (themeKey === 'missile') { removeModel(m.model); explosionAt(sx, sy, 28); sfx('boom'); }
+  else if (themeKey === 'mosquito') {
+    removeModel(m.model);
+    for (let i = 0; i < 14; i++) {
+      const a = Math.random() * Math.PI * 2, s = 50 + Math.random() * 150;
+      particles.push({ x: sx, y: sy, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.5 + Math.random() * 0.3, r: 2 + Math.random() * 3, c: Math.random() < 0.4 ? '#b3121b' : '#1a1714' });
+    }
+    sfx('splat');
+  } else {
+    // planes and birds fall out of the sky instead of vanishing
+    const vel = m.heading.clone().multiplyScalar(m.speed * 0.6);
+    wrecks.push({ model: m.model, pos: m.pos.clone(), vel, spin: rand(2, 5) * (Math.random() < 0.5 ? 1 : -1), life: 2.2, q: m.model.root.quaternion.clone() });
+    if (themeKey === 'plane') { explosionAt(sx, sy, 14); sfx('boom'); }
+    else {
+      for (let i = 0; i < 14; i++) {
+        const a = Math.random() * Math.PI * 2, s = 30 + Math.random() * 110;
+        particles.push({ feather: true, x: sx, y: sy, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 1 + Math.random() * 0.4, r: 2 + Math.random() * 2.5, c: Math.random() < 0.5 ? '#eee6d6' : '#' + PALETTE.bird[m.type].toString(16).padStart(6, '0') });
+      }
+      sfx('flap');
+    }
+  }
+  if (m.T.split) {
+    for (let i = 0; i < 2; i++) {
+      const c = spawn('mini', m.pos.clone().add(V(rand(-0.2, 0.2), rand(-0.1, 0.1), rand(-0.2, 0.2))));
+      c.home = hidingSpot(1.8, Math.max(2.5, areaR * 0.5)); c.mode = 'flee'; c.cool = 3;
+      c.heading.copy(c.pos).sub(camPos).normalize(); c.speed = 0.6;
+    }
+  }
+  try { navigator.vibrate && navigator.vibrate(20); } catch (_) {}
+}
+
+function gameOver(quit) {
+  if (state !== 'play') return;
+  state = 'over';
+  mosquitoes.forEach(m => { stopVoice(m.voice); m.voice = null; });
+  let best = 0;
+  try { best = +localStorage.getItem('vizviz_best') || 0; if (score > best) localStorage.setItem('vizviz_best', score); } catch (_) {}
+  $('overTitle').textContent = quit ? 'بازی تموم شد' : theme.hitTitle;
+  $('overText').innerHTML = 'به مرحله‌ی ' + fa(level) + ' رسیدی.<br>امتیاز: <b>' + fa(score) + '</b>' +
+    (score > best ? '<br>رکورد جدید!' : (best ? '<br>بهترین امتیاز: ' + fa(best) : ''));
+  $('overScreen').classList.remove('hidden');
+  $('hud').classList.add('hidden');
+  hintEl.textContent = '';
+  if (xrSession) xrSession.end().catch(() => {});
+}
+
+// ---------- Input ----------
+canvas.addEventListener('pointerup', e => {
+  if (state !== 'play') return;
+  if (mode !== 'xr' && !hasSensor && dragMoved > 12) return;
+  swat(e.clientX, e.clientY);
+});
+overlayEl.addEventListener('beforexrselect', e => e.preventDefault());
+
+function swat(x, y) {
+  let best = null, bestD = Infinity;
+  for (const m of mosquitoes) {
+    if (m.dead || !m.screen) continue;
+    const s = m.screen, radius = Math.max(38, s.r * 1.4), d = Math.hypot(s.x - x, s.y - y);
+    if (d < radius && s.depth < bestD) { best = m; bestD = s.depth; }
+  }
+  particles.push({ ring: true, x, y, life: 0.25, r: 10 });
+  if (!best) return;
+  best.hp--;
+  if (best.hp <= 0) kill(best, best.screen.x, best.screen.y);
+  else {
+    best.hitFlash = 0.15; sfx('hit');
+    best.pos.addScaledVector(best.pos.clone().sub(camPos).normalize(), 0.5);
+    best.speed *= 0.4;
+  }
+}
+
+// ---------- Movement ----------
+const _d = V(), _t = V(), _s = V();
+// turn the heading towards `desired` at no more than `rate` rad/s
+function turnToward(h, desired, rate, dt) {
+  const ang = h.angleTo(desired);
+  if (ang < 1e-4) return;
+  if (ang > 3.0) desired = desired.clone().add(V(-h.z, 0, h.x).multiplyScalar(0.2)).normalize();
+  h.lerp(desired, Math.min(1, rate * dt / ang)).normalize();
+}
+
+function moveEntity(m, dt) {
+  const toP = _d.copy(camPos).sub(m.pos), dP = toP.length();
+  const T = m.T;
+  const wv = weaveAmount() + (T.agile && level >= 3 ? 0.15 : 0);
+
+  if (m.mode === 'rest' && dP < m.aggro && m.cool <= 0) {
+    m.mode = 'attack'; m.attackT = 0;
+    sfx(themeKey === 'missile' ? 'launch' : 'alert');
+  }
+  if (m.mode === 'attack' && dP > m.aggro * 2.6 && themeKey !== 'missile') { m.mode = 'rest'; m.cool = 2; }
+  if (m.mode === 'flee' && m.cool <= 0) m.mode = 'rest';
+
+  const attackSpeed = T.speed * theme.speed * m.speedMul;
+
+  if (m.mode === 'attack') {
+    m.attackT += dt;
+    const desired = toP.clone().normalize();
+    if (wv > 0) {
+      const lat = _s.crossVectors(desired, UP).normalize();
+      desired.addScaledVector(lat, Math.sin(m.attackT * 1.1 + m.id) * wv).normalize();
+    }
+    if (themeKey === 'mosquito') {
+      desired.add(_t.set(Math.sin(time * 3.1 + m.id), Math.sin(time * 4.3 + m.id * 2) * 0.6, Math.cos(time * 2.7 + m.id)).multiplyScalar(0.25)).normalize();
+      turnToward(m.heading, desired, theme.turn, dt);
+      m.speed += (attackSpeed - m.speed) * Math.min(1, dt * 3);
+    } else if (themeKey === 'missile') {
+      // ignition: a short hesitation, then hard acceleration
+      turnToward(m.heading, desired, m.attackT < 0.5 ? 3 : theme.turn, dt);
+      const target = m.attackT < 0.4 ? 0.05 : attackSpeed * Math.min(1.3, 0.5 + m.attackT * 0.6);
+      m.speed += (target - m.speed) * Math.min(1, dt * 2.5);
+    } else {
+      turnToward(m.heading, desired, theme.turn * (T.agile ? 1.3 : 1), dt);
+      m.speed += (attackSpeed - m.speed) * Math.min(1, dt * 1.5);
+    }
+    m.pos.addScaledVector(m.heading, m.speed * dt);
+    if (m.pos.distanceTo(camPos) < 0.3) { impact(m); return; }
+  } else if (themeKey === 'plane' || themeKey === 'bird') {
+    // cruise: circle around the home spot (or fly to a new one), banking in the turns
+    const rel = _t.copy(m.pos).sub(m.home); rel.y = 0;
+    const R = theme.orbit, rl = rel.length() || 0.001;
+    let desired;
+    if (m.mode === 'flee' || rl > R * 2.2) desired = m.home.clone().sub(m.pos).normalize();
+    else {
+      desired = V(-rel.z * m.orbitDir, 0, rel.x * m.orbitDir).normalize();
+      desired.addScaledVector(rel.normalize(), -(rl - R) * 1.5);
+      desired.y = (m.home.y - m.pos.y) * 1.2;
+      desired.normalize();
+    }
+    turnToward(m.heading, desired, theme.turn, dt);
+    const cruise = m.mode === 'flee' ? attackSpeed : theme.cruise;
+    m.speed += (cruise - m.speed) * Math.min(1, dt * 1.2);
+    m.pos.addScaledVector(m.heading, m.speed * dt);
+  } else if (themeKey === 'missile') {
+    // hover at the spot, nose slowly tracking the player
+    m.pos.lerp(_t.copy(m.home).add(_s.set(0, Math.sin(m.phase * 1.4) * 0.03, 0)), Math.min(1, dt * 1.5));
+    turnToward(m.heading, toP.clone().normalize(), 0.6, dt);
+    m.speed = 0;
+  } else {
+    // mosquito: erratic hovering around its spot
+    const target = _t.set(
+      m.home.x + Math.sin(m.phase * 0.7 + m.id) * 0.25,
+      m.home.y + Math.sin(m.phase * 1.3 + m.id * 2) * 0.12,
+      m.home.z + Math.cos(m.phase * 0.9 + m.id) * 0.25);
+    const toH = target.sub(m.pos), dH = toH.length() || 1e-3;
+    turnToward(m.heading, toH.clone().normalize(), theme.turn, dt);
+    m.speed = m.mode === 'flee' ? 1.1 : Math.min(0.45, dH * 1.5);
+    m.pos.addScaledVector(m.heading, m.speed * dt);
+  }
+
+  // banking from turn rate (planes and birds roll into turns)
+  const yaw = Math.atan2(m.heading.x, m.heading.z);
+  let dy = yaw - m.prevYaw; if (dy > Math.PI) dy -= 2 * Math.PI; if (dy < -Math.PI) dy += 2 * Math.PI;
+  m.prevYaw = yaw;
+  const targetRoll = Math.max(-1, Math.min(1, -(dy / Math.max(dt, 1e-3)) * theme.bank));
+  m.roll += (targetRoll - m.roll) * Math.min(1, dt * 3);
+}
+
+function poseModel(m, dt) {
+  const r = m.model.root;
+  r.position.copy(m.pos);
+  r.lookAt(_t.copy(m.pos).add(m.heading));
+  if (m.roll) r.rotateZ(m.roll);
+  const P = m.model.parts;
+  if (P.wings) {
+    const attack = m.mode === 'attack' || m.mode === 'flee';
+    const gliding = !attack && Math.sin(m.phase * 0.6 + m.id) < -0.2;
+    const f = attack ? 13 : 8;
+    m.flapT = (m.flapT || 0) + dt * (gliding ? 0 : f);
+    const a = gliding ? 0.08 : Math.sin(m.flapT);
+    const lag = gliding ? 0.05 : Math.sin(m.flapT - 0.9);
+    for (const w of P.wings) { w.shoulder.rotation.z = (a * 0.75 + 0.1) * w.s; w.elbow.rotation.z = lag * 0.5; }
+    P.eyeM.color.setHex(m.mode === 'attack' ? 0xff2020 : 0x111111);
+  }
+  if (P.qwings) for (const w of P.qwings) w.p.rotation.z = (0.2 + Math.random() * 0.9) * w.s;
+  if (P.flame) {
+    const on = m.mode === 'attack' && m.speed > 0.1;
+    P.flame.visible = on;
+    if (on) { const k = 0.8 + Math.random() * 0.5; P.flame.scale.set(1, 1, k * Math.min(1.6, 0.5 + m.speed)); }
+  }
+  // hit flash / ghost visibility
+  const flash = m.hitFlash > 0;
+  for (const mat of m.model.mats) {
+    if (mat.emissive) mat.emissive.setHex(flash ? 0xffffff : 0x000000);
+    if (m.T.ghost) mat.opacity = m.pos.distanceTo(camPos) < 1.3 ? 0.9 : 0.18 + 0.08 * Math.sin(time * 5 + m.id);
+  }
+}
+
+// ---------- Update ----------
+function update(dt) {
+  time += dt;
+  if (mode === 'sensor') {
+    if (!hasSensor) { if (keys.arrowleft) lookYaw += dt * 1.8; if (keys.arrowright) lookYaw -= dt * 1.8; }
+    updateSensorPose();
+    if (state === 'play') {
+      const [fx, fz] = forwardFlat(), sp = 1.4 * dt;
+      if (keys.w || keys.arrowup) { camPos.x += fx * sp; camPos.z += fz * sp; }
+      if (keys.s || keys.arrowdown) { camPos.x -= fx * sp; camPos.z -= fz * sp; }
+      if (keys.a) { camPos.x += fz * sp; camPos.z -= fx * sp; }
+      if (keys.d) { camPos.x -= fz * sp; camPos.z += fx * sp; }
+    }
+  }
+  updateListener();
+
+  // wrecks and smoke keep animating even after game over
+  for (const w of wrecks) {
+    w.life -= dt; w.vel.y -= 3.5 * dt; w.pos.addScaledVector(w.vel, dt);
+    const r = w.model.root; r.position.copy(w.pos);
+    r.rotateZ(w.spin * dt); r.rotateX(0.8 * dt);
+    if (themeKey === 'plane' && Math.random() < 0.6) puff(w.pos, 0.03, 0x444444, 1.0);
+    if (w.pos.y < 0.05 || w.life <= 0) {
+      if (themeKey === 'plane') { puff(w.pos, 0.08, 0xff8a1f, 0.4); puff(w.pos, 0.12, 0x555555, 1.4); }
+      removeModel(w.model); w.done = true;
+    }
+  }
+  wrecks = wrecks.filter(w => !w.done);
+  for (const p of puffs) {
+    p.life -= dt; const k = 1 - p.life / p.max;
+    p.m.scale.setScalar(p.size * (1 + k * 2.5)); p.m.material.opacity = 0.45 * (1 - k);
+    if (p.life <= 0) { scene.remove(p.m); p.m.material.dispose(); }
+  }
+  for (let i = puffs.length - 1; i >= 0; i--) if (puffs[i].life <= 0) puffs.splice(i, 1);
+
+  if (state !== 'play') return;
+  levelTime += dt;
+  if (comboTimer > 0) { comboTimer -= dt; if (comboTimer <= 0) combo = 0; }
+  const blur = time < itchUntil ? 'blur(5px) saturate(1.4)' : '';
+  video.style.filter = blur; $('fallbackBg').style.filter = blur;
+
+  if (mosquitoes.length === 0 && wrecks.length === 0) {
+    if (levelBreak <= 0) {
+      levelBreak = 3;
+      const bonus = Math.max(0, Math.round(200 - levelTime * 2));
+      score += bonus; $('score').textContent = fa(score);
+      health = Math.min(100, health + 30); $('health').style.width = health + '%';
+      showBanner('همه رو زدی!', bonus ? 'جایزه‌ی سرعت: ' + fa(bonus) : '', 2500);
+    }
+    levelBreak -= dt;
+    if (levelBreak <= 0.0001) { levelBreak = 0; startLevel(); }
+  }
+
+  let attackers = 0;
+  for (const m of mosquitoes) {
+    if (m.dead) continue;
+    m.phase += dt;
+    if (m.hitFlash > 0) m.hitFlash -= dt;
+    if (m.cool > 0) m.cool -= dt;
+    if (!window.__freeze) moveEntity(m, dt);
+    if (state !== 'play') return;
+    if (m.dead) continue;
+    if (m.mode === 'attack') attackers++;
+    if (themeKey === 'missile' && m.mode === 'attack' && m.speed > 0.2) {
+      m.puffT -= dt;
+      if (m.puffT <= 0) { m.puffT = 0.04; puff(m.pos.clone().addScaledVector(m.heading, -0.24 * m.T.scale), 0.02, 0xcccccc, 1.4); }
+    }
+    poseModel(m, dt);
+  }
+  mosquitoes = mosquitoes.filter(m => !m.dead);
+  updateLeft();
+
+  if (actx) {
+    const sorted = mosquitoes.slice().sort((a, b) => a.pos.distanceTo(camPos) - b.pos.distanceTo(camPos));
+    sorted.forEach((m, i) => {
+      if (i < MAX_VOICES) {
+        if (!m.voice) m.voice = makeVoice(m.T.pitch * rand(0.95, 1.05), m.T.vol);
+        const d = m.pos.distanceTo(camPos);
+        const approach = m.mode === 'attack' ? Math.max(0, 1 - d / m.aggro) : 0;
+        const pitchMul = themeKey === 'missile' ? 1 + approach * 0.8 + (m.mode === 'attack' ? 0.2 : -0.3) : 1 + approach * 0.25;
+        const loud = themeKey === 'missile' ? (m.mode === 'attack' ? 1 : 0.15) : (m.mode === 'attack' ? 1 : 0.55);
+        moveVoice(m.voice, m.pos, loud, pitchMul);
+      } else if (m.voice) { stopVoice(m.voice); m.voice = null; }
+    });
+  }
+
+  if (mosquitoes.length) {
+    const nearest = Math.min(...mosquitoes.map(m => m.pos.distanceTo(camPos)));
+    if (attackers) hintEl.textContent = attackers > 1 ? fa(attackers) + ' تا ' + theme.one + ' دارن حمله می‌کنن!' : 'یه ' + theme.one + ' داره حمله می‌کنه!';
+    else if (nearest > 2.4) hintEl.textContent = 'نزدیک‌ترین ' + theme.one + ' حدود ' + fa(Math.round(nearest)) + ' متر دوره. راه برو و دنبالش بگرد.' +
+      (mode === 'sensor' && hasSensor && steps === 0 && levelTime > 6 ? ' (گوشی رو جلوت نگه دار و راه برو، قدم‌هات شمرده می‌شه)' : '');
+    else hintEl.textContent = 'خیلی نزدیکی، دور و برت رو نگاه کن.';
+  } else hintEl.textContent = '';
+
+  for (const pt of particles) {
+    pt.life -= dt;
+    if (!pt.ring) { pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.vx *= 0.9; pt.vy *= 0.9; if (pt.feather) pt.vy += 60 * dt; }
+    else pt.r += 180 * dt;
+  }
+  particles = particles.filter(p => p.life > 0);
+  for (const pp of popups) { pp.life -= dt; pp.y -= 40 * dt; }
+  popups = popups.filter(p => p.life > 0);
+}
+
+// ---------- Render ----------
+const _v = V(), _iq = new THREE.Quaternion();
+function project(p) {
+  _iq.copy(camQ).invert();
+  const v = _v.copy(p).sub(camPos).applyQuaternion(_iq);
+  if (v.z > -0.05) return { behind: true, v: [v.x, v.y, v.z] };
+  const z = -v.z;
+  if (projM) {
+    const P = projM;
+    const cx = P[0] * v.x + P[4] * v.y + P[8] * v.z + P[12];
+    const cy = P[1] * v.x + P[5] * v.y + P[9] * v.z + P[13];
+    const cw = P[3] * v.x + P[7] * v.y + P[11] * v.z + P[15];
+    return { x: (cx / cw + 1) / 2 * W, y: (1 - cy / cw) / 2 * H, depth: z, v: [v.x, v.y, v.z], f: P[5] * H / 2 };
+  }
+  return { x: W / 2 + (v.x / z) * focal, y: H / 2 - (v.y / z) * focal, depth: z, v: [v.x, v.y, v.z], f: focal };
+}
+
+function drawEdgeArrow(v, dist) {
+  const ang = Math.atan2(-v[1], v[0] || 1e-3);
+  const margin = 26, tx = Math.cos(ang), ty = Math.sin(ang);
+  const s = Math.min(tx ? (W / 2 - margin) / Math.abs(tx) : Infinity, ty ? (H / 2 - margin) / Math.abs(ty) : Infinity);
+  const danger = Math.max(0, Math.min(1, (2.5 - dist) / 2));
+  const size = 10 + danger * 9;
+  ctx.save();
+  ctx.translate(W / 2 + tx * s, H / 2 + ty * s); ctx.rotate(ang);
+  ctx.globalAlpha = 0.6 + danger * 0.4; ctx.fillStyle = '#ff3b3b';
+  ctx.beginPath(); ctx.moveTo(size, 0); ctx.lineTo(-size * 0.7, size * 0.7); ctx.lineTo(-size * 0.7, -size * 0.7); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function drawRadar() {
+  const R = 50, cx = 16 + R, cy = H - (16 + R) - 4;
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, R / 2, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,.12)';
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, R, -Math.PI / 2 - 0.5, -Math.PI / 2 + 0.5); ctx.closePath(); ctx.fill();
+  const [fx, fz] = forwardFlat(), rx = -fz, rz = fx;
+  const scale = R / Math.max(3, areaR);
+  for (const m of mosquitoes) {
+    if (m.T.ghost) continue;
+    const dx = m.pos.x - camPos.x, dz = m.pos.z - camPos.z;
+    let px = (dx * rx + dz * rz) * scale, py = -(dx * fx + dz * fz) * scale;
+    const l = Math.hypot(px, py), edge = l > R - 4;
+    if (edge) { px *= (R - 4) / l; py *= (R - 4) / l; }
+    ctx.fillStyle = m.mode === 'attack' ? '#ff3b3b' : '#ffcf3f';
+    ctx.globalAlpha = edge ? 0.55 : 1;
+    ctx.beginPath(); ctx.arc(cx + px, cy + py, m.mode === 'attack' ? 4 : 3, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1; ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.moveTo(cx, cy - 6); ctx.lineTo(cx - 4, cy + 4); ctx.lineTo(cx + 4, cy + 4); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function render(dt) {
+  // 3D
+  camera.position.copy(camPos); camera.quaternion.copy(camQ);
+  if (projM) { camera.projectionMatrix.fromArray(projM); camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert(); }
+  renderer.render(scene, camera);
+
+  // shake on heavy impacts
+  if (shake > 0) {
+    shake -= dt; const k = shake * 30;
+    overlayEl.style.transform = `translate(${rand(-k, k)}px, ${rand(-k, k)}px)`;
+    if (shake <= 0) overlayEl.style.transform = '';
+  }
+
+  // 2D overlay: markers, arrows, radar, effects
+  ctx.clearRect(0, 0, W, H);
+  if (state === 'play' || state === 'over') {
+    let closestAttack = Infinity;
+    for (const m of mosquitoes) {
+      const dist = m.pos.distanceTo(camPos);
+      if (m.mode === 'attack') closestAttack = Math.min(closestAttack, dist);
+      const pr = project(m.pos);
+      const r = pr.behind ? 0 : (theme.size * m.T.scale * pr.f) / pr.depth;
+      const on = !pr.behind && pr.x > -r && pr.x < W + r && pr.y > -r && pr.y < H + r;
+      m.screen = on ? { x: pr.x, y: pr.y, r, depth: pr.depth } : null;
+      if (on) {
+        if (r < 12 && (!m.T.ghost || dist < 1.3)) {
+          ctx.strokeStyle = m.mode === 'attack' ? 'rgba(255,60,60,.85)' : 'rgba(255,207,63,.65)';
+          ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(pr.x, pr.y, 16, 0, Math.PI * 2); ctx.stroke();
+        }
+        if (m.T.hp > 1) for (let i = 0; i < m.T.hp; i++) {
+          ctx.fillStyle = i < m.hp ? '#ffcf3f' : 'rgba(255,255,255,.3)';
+          ctx.beginPath(); ctx.arc(pr.x + (i - (m.T.hp - 1) / 2) * 9, pr.y - Math.max(r, 12) - 8, 3, 0, Math.PI * 2); ctx.fill();
+        }
+      } else if (m.mode === 'attack' && !m.T.ghost) drawEdgeArrow(pr.v, dist);
+    }
+    if (closestAttack < 1.4 && state === 'play') {
+      const a = Math.min(0.45, (1.4 - closestAttack) * 0.45) * (0.7 + 0.3 * Math.sin(time * 12));
+      const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
+      g.addColorStop(0, 'rgba(255,0,0,0)'); g.addColorStop(1, `rgba(255,0,0,${a})`);
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    }
+    if (state === 'play') drawRadar();
+  }
+  for (const pt of particles) {
+    ctx.globalAlpha = Math.max(0, Math.min(1, pt.life * 2));
+    if (pt.ring) { ctx.strokeStyle = pt.c || 'rgba(255,255,255,.8)'; ctx.lineWidth = pt.c ? 5 : 2; ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2); ctx.stroke(); }
+    else if (pt.feather) { ctx.fillStyle = pt.c; ctx.beginPath(); ctx.ellipse(pt.x, pt.y, pt.r * 2, pt.r * 0.7, pt.life * 6, 0, Math.PI * 2); ctx.fill(); }
+    else { ctx.fillStyle = pt.c; ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2); ctx.fill(); }
+  }
+  ctx.globalAlpha = 1;
+  ctx.font = 'bold 18px Vazirmatn, Tahoma, sans-serif'; ctx.textAlign = 'center';
+  for (const pp of popups) {
+    ctx.globalAlpha = Math.min(1, pp.life * 2);
+    ctx.fillStyle = '#000'; ctx.fillText(pp.text, pp.x + 1, pp.y + 1);
+    ctx.fillStyle = '#ffcf3f'; ctx.fillText(pp.text, pp.x, pp.y);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function step(dt) { update(dt); render(dt); }
+function loop(t) {
+  if (xrSession) return;
+  const dt = Math.min(0.05, (t - lastT) / 1000 || 0);
+  lastT = t;
+  step(dt);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// ---------- Start ----------
+try { const b = +localStorage.getItem('vizviz_best'); if (b) $('best').textContent = 'بهترین امتیاز: ' + fa(b); } catch (_) {}
+$('sizes').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  for (const x of $('sizes').children) x.classList.toggle('on', x === b);
+  areaR = +b.dataset.r;
+});
+$('themes').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  themeKey = b.dataset.t;
+  try { localStorage.setItem('vizviz_theme', themeKey); } catch (_) {}
+  applyTheme();
+});
+applyTheme();
+let canXR = false;
+xrSupported().then(ok => {
+  canXR = ok;
+  $('modeNote').textContent = ok
+    ? 'گوشیت از واقعیت افزوده‌ی کامل پشتیبانی می‌کنه: راه رفتنت دقیق دنبال می‌شه.'
+    : 'راه رفتنت با شمردن قدم‌ها دنبال می‌شه. گوشی رو جلوت نگه دار و آروم راه برو.';
+});
+
+async function begin() {
+  $('startScreen').classList.add('hidden');
+  $('overScreen').classList.add('hidden');
+  $('hud').classList.remove('hidden');
+  if (!actx) initAudio();
+  if (actx && actx.state === 'suspended') actx.resume();
+  let xrOk = false;
+  if (canXR) { try { await startXR(); xrOk = true; } catch (err) { console.warn('XR failed, using sensors', err); } }
+  if (!xrOk) await Promise.all([enableSensors(), startCamera()]);
+  state = 'play';
+  resetGame();
+}
+$('startBtn').addEventListener('click', begin);
+$('againBtn').addEventListener('click', begin);
+
+window.__vizviz = {
+  get state() { return state; }, get mosquitoes() { return mosquitoes; }, get score() { return score; },
+  get health() { return health; }, get level() { return level; }, set level(v) { level = v; }, camPos, camQ, swat,
+  get lookYaw() { return lookYaw; }, set lookYaw(v) { lookYaw = v; }, set lookPitch(v) { lookPitch = v; }
+};
 </script>
 </body>
 </html>
