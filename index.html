@@ -45,6 +45,7 @@
   .stat { font-size: 15px; line-height: 1.6; }
   .stat b { color: var(--accent); font-size: 20px; }
   #healthWrap { width: 120px; height: 12px; border-radius: 6px; background: rgba(0,0,0,.5); overflow: hidden; border: 1px solid rgba(255,255,255,.4); margin-top: 4px; }
+  #timer { font-size: 18px; color: var(--accent); font-weight: 700; margin-top: 2px; }
   #health { height: 100%; width: 100%; background: linear-gradient(90deg, #ff4d4d, #ffcf3f); transition: width .25s; }
   #banner {
     position: absolute; top: 36%; left: 16px; right: 16px; text-align: center; pointer-events: none;
@@ -87,7 +88,7 @@
   <div id="flash"></div>
   <div id="hud" class="hidden">
     <div class="stat">امتیاز: <b id="score">۰</b><br>مرحله: <span id="level">۱</span></div>
-    <div class="stat" style="text-align:left"><span id="leftLabel">پشه‌های مونده</span>: <b id="left">۰</b><div id="healthWrap"><div id="health"></div></div></div>
+    <div class="stat" style="text-align:left"><span id="leftLabel">پشه‌های مونده</span>: <b id="left">۰</b><div id="healthWrap"><div id="health"></div></div><div id="timer" class="hidden"></div></div>
   </div>
   <div id="banner"></div>
   <div id="hint"></div>
@@ -97,7 +98,13 @@
   <h1>وزوز!</h1>
   <p id="intro"></p>
   <p class="small" id="intro2"></p>
-  <p style="margin-top:12px">چی بهت حمله کنه؟</p>
+  <p style="margin-top:12px">حالت بازی</p>
+  <div class="sizes" id="modes">
+    <button data-m="attack" class="on">حمله به کاربر</button>
+    <button data-m="free">پرواز آزاد</button>
+  </div>
+  <p class="small" id="modeDesc"></p>
+  <p style="margin-top:12px" id="whatQ">چی بهت حمله کنه؟</p>
   <div class="sizes" id="themes">
     <button data-t="mosquito" class="on">🦟 پشه</button>
     <button data-t="bird">🐦 پرنده</button>
@@ -383,6 +390,16 @@ const THEMES = {
     speed: 0.9, turn: 4, bank: 0, aggro: 1.6, size: 0.12, impact: 'explode',
     sound: { wave: 'sine', f: 2.1, lfo: 5, depth: 0.01, tone: 0.35 } }
 };
+let gameMode = 'attack';
+try { if (localStorage.getItem('vizviz_mode') === 'free') gameMode = 'free'; } catch (_) {}
+const FREE = () => gameMode === 'free';
+function applyMode() {
+  for (const x of $('modes').children) x.classList.toggle('on', x.dataset.m === gameMode);
+  $('modeDesc').textContent = FREE()
+    ? 'کسی بهت حمله نمی‌کنه، ولی همه‌شون دائم در حال پروازن. قبل از تموم شدن وقت همه رو بزن. هر مرحله تندتر و پرمانورتر می‌شن.'
+    : 'وقتی نزدیکشون بشی بهت حمله می‌کنن. قبل از اینکه بهت برسن بزنشون.';
+  $('whatQ').textContent = FREE() ? 'چی پرواز کنه؟' : 'چی بهت حمله کنه؟';
+}
 let themeKey = 'mosquito';
 try { const t = localStorage.getItem('vizviz_theme'); if (THEMES[t]) themeKey = t; } catch (_) {}
 let theme = THEMES[themeKey];
@@ -589,13 +606,13 @@ let state = 'menu';
 let areaR = 6;
 let origin = V();
 let mosquitoes = [], wrecks = [], particles = [], popups = [];
-let score = 0, health = 100, level = 0, levelTime = 0, levelBreak = 0;
+let score = 0, health = 100, level = 0, levelTime = 0, levelBreak = 0, levelLimit = 0;
 let combo = 0, comboTimer = 0, biteTimes = [], itchUntil = 0, shake = 0;
 let lastT = 0, time = 0, nextId = 1;
 const MAX_VOICES = 7;
 
 function levelPlan(n) {
-  const count = 4 + Math.floor(n * 1.5);
+  const count = gameMode === 'free' ? 3 + n : 4 + Math.floor(n * 1.5);
   const pool = [['normal', 1]];
   if (n >= 3) pool.push(['fast', 0.25 + 0.03 * n]);
   if (n >= 4) pool.push(['fat', 0.25]);
@@ -654,8 +671,10 @@ function startLevel() {
     const frac = i / plan.count;
     const minD = i < 2 ? 1.8 : Math.max(1.8, areaR * 0.3);
     const maxD = i < 2 ? Math.min(2.8, Math.max(2, areaR)) : areaR * (0.6 + 0.4 * frac);
-    spawn(pick(plan.pool), hidingSpot(minD, Math.max(minD + 0.5, maxD)), plan);
+    const m = spawn(pick(plan.pool), hidingSpot(minD, Math.max(minD + 0.5, maxD)), plan);
+    if (FREE()) { m.mode = 'cruise'; m.speed = 0.2; }
   }
+  levelLimit = FREE() ? 40 + plan.count * 8 : 0;
   $('level').textContent = fa(level);
   updateLeft();
   showBanner('مرحله‌ی ' + fa(level), fa(plan.count) + ' تا ' + theme.one + ' این اطراف قایم شدن', 2200);
@@ -677,6 +696,7 @@ function resetGame() {
   clearWorld();
   score = 0; health = 100; level = 0; combo = 0; biteTimes = []; itchUntil = 0; steps = 0; levelBreak = 0;
   $('score').textContent = fa(0); $('health').style.width = '100%';
+  $('healthWrap').classList.toggle('hidden', FREE()); $('timer').classList.toggle('hidden', !FREE());
   startLevel();
 }
 
@@ -759,20 +779,20 @@ function kill(m, sx, sy) {
   if (m.T.split) {
     for (let i = 0; i < 2; i++) {
       const c = spawn('mini', m.pos.clone().add(V(rand(-0.2, 0.2), rand(-0.1, 0.1), rand(-0.2, 0.2))));
-      c.home = hidingSpot(1.8, Math.max(2.5, areaR * 0.5)); c.mode = 'flee'; c.cool = 3;
+      c.home = hidingSpot(1.8, Math.max(2.5, areaR * 0.5)); c.mode = FREE() ? 'cruise' : 'flee'; c.cool = 3;
       c.heading.copy(c.pos).sub(camPos).normalize(); c.speed = 0.6;
     }
   }
   try { navigator.vibrate && navigator.vibrate(20); } catch (_) {}
 }
 
-function gameOver(quit) {
+function gameOver(quit, timeUp) {
   if (state !== 'play') return;
   state = 'over';
   mosquitoes.forEach(m => { stopVoice(m.voice); m.voice = null; });
   let best = 0;
   try { best = +localStorage.getItem('vizviz_best') || 0; if (score > best) localStorage.setItem('vizviz_best', score); } catch (_) {}
-  $('overTitle').textContent = quit ? 'بازی تموم شد' : theme.hitTitle;
+  $('overTitle').textContent = quit ? 'بازی تموم شد' : timeUp ? 'وقت تموم شد!' : theme.hitTitle;
   $('overText').innerHTML = 'به مرحله‌ی ' + fa(level) + ' رسیدی.<br>امتیاز: <b>' + fa(score) + '</b>' +
     (score > best ? '<br>رکورد جدید!' : (best ? '<br>بهترین امتیاز: ' + fa(best) : ''));
   $('overScreen').classList.remove('hidden');
@@ -894,6 +914,39 @@ function moveEntity(m, dt) {
     m.pos.addScaledVector(m.heading, m.speed * dt);
   }
 
+  bankFromTurn(m, dt);
+}
+
+// Free flight: wander between random waypoints around the area, never attacking.
+// Speed, turning and side-to-side manoeuvres grow with the level.
+const FREE_SPEED = { mosquito: 0.35, bird: 0.55, plane: 0.7, missile: 0.8, star: 0.3 };
+function moveFree(m, dt) {
+  const T = m.T, lv = level - 1;
+  const speed = FREE_SPEED[themeKey] * (1 + lv * 0.12) * (T.agile ? 1.3 : 1) * (T.hp > 1 ? 0.8 : 1);
+  m.wpT = (m.wpT || 0) - dt;
+  if (!m.wp || m.pos.distanceTo(m.wp) < 0.5 || m.wpT <= 0) { m.wp = hidingSpot(0.8, Math.max(2, areaR)); m.wpT = rand(5, 10); }
+  const desired = m.wp.clone().sub(m.pos).normalize();
+  // keep clear of the player's face
+  const away = _t.copy(m.pos).sub(camPos), d = away.length();
+  if (d < 0.9) desired.addScaledVector(away.normalize(), (0.9 - d) * 4);
+  // manoeuvres: none on level 1, then gradually more
+  const wv = (level <= 1 ? 0 : Math.min(0.9, lv * 0.12)) + (T.agile && level > 1 ? 0.15 : 0);
+  if (wv > 0) {
+    const lat = _s.crossVectors(desired, UP).normalize();
+    desired.addScaledVector(lat, Math.sin(m.phase * (1 + lv * 0.08) + m.id) * wv);
+    desired.y += Math.sin(m.phase * 0.8 + m.id * 3) * wv * 0.3;
+  }
+  if (themeKey === 'mosquito') desired.add(_s.set(Math.sin(time * 3.1 + m.id), Math.sin(time * 4.3 + m.id * 2) * 0.6, Math.cos(time * 2.7 + m.id)).multiplyScalar(0.3));
+  // stay between floor and ceiling
+  if (m.pos.y < 0.3) desired.y += 1; if (m.pos.y > 2.4) desired.y -= 1;
+  desired.normalize();
+  turnToward(m.heading, desired, theme.turn * (1 + lv * 0.08), dt);
+  m.speed += (speed - m.speed) * Math.min(1, dt * 1.2);
+  m.pos.addScaledVector(m.heading, m.speed * dt);
+  bankFromTurn(m, dt);
+}
+
+function bankFromTurn(m, dt) {
   // banking from turn rate (planes and birds roll into turns)
   const yaw = Math.atan2(m.heading.x, m.heading.z);
   let dy = yaw - m.prevYaw; if (dy > Math.PI) dy -= 2 * Math.PI; if (dy < -Math.PI) dy += 2 * Math.PI;
@@ -922,7 +975,7 @@ function poseModel(m, dt) {
     if (m.roll) r.rotateZ(m.roll);
   }
   if (P.wings) {
-    const attack = m.mode === 'attack' || m.mode === 'flee';
+    const attack = m.mode === 'attack' || m.mode === 'flee' || m.mode === 'cruise';
     const gliding = !attack && Math.sin(m.phase * 0.6 + m.id) < -0.2;
     const f = attack ? 13 : 8;
     m.flapT = (m.flapT || 0) + dt * (gliding ? 0 : f);
@@ -935,15 +988,15 @@ function poseModel(m, dt) {
   if (P.beacon) {
     // slow blink while waiting, faster and faster as it closes in
     const d = m.pos.distanceTo(camPos);
-    const rate = m.mode === 'attack' ? 3 + Math.max(0, 1 - d / m.aggro) * 9 : 1.1;
+    const rate = m.mode === 'attack' ? 3 + Math.max(0, 1 - d / m.aggro) * 9 : m.mode === 'cruise' ? 2 : 1.1;
     m.blinkT = (m.blinkT || 0) + dt * rate;
     const on = (m.blinkT % 1) < 0.35;
     P.beacon.visible = on;
-    if (on && !m.blinkOn && d < m.aggro * 2) beepQueue.push(d);
+    if (on && !m.blinkOn && d < m.aggro * 2 && m.mode !== 'cruise') beepQueue.push(d);
     m.blinkOn = on;
   }
   if (P.flame) {
-    const on = m.mode === 'attack' && m.speed > 0.1;
+    const on = (m.mode === 'attack' || m.mode === 'cruise') && m.speed > 0.1;
     P.flame.visible = on;
     if (on) { const k = 0.8 + Math.random() * 0.5; P.flame.scale.set(1, 1, k * Math.min(1.6, 0.5 + m.speed)); }
   }
@@ -1000,10 +1053,16 @@ function update(dt) {
   const blur = time < itchUntil ? 'blur(5px) saturate(1.4)' : '';
   video.style.filter = blur; $('fallbackBg').style.filter = blur;
 
+  if (FREE() && mosquitoes.length) {
+    const left = Math.max(0, levelLimit - levelTime);
+    $('timer').textContent = 'زمان: ' + fa(Math.ceil(left));
+    $('timer').style.color = left < 10 ? '#ff5050' : '';
+    if (left <= 0) { gameOver(false, true); return; }
+  }
   if (mosquitoes.length === 0 && wrecks.length === 0) {
     if (levelBreak <= 0) {
       levelBreak = 3;
-      const bonus = Math.max(0, Math.round(200 - levelTime * 2));
+      const bonus = FREE() ? Math.round(Math.max(0, levelLimit - levelTime) * 5) : Math.max(0, Math.round(200 - levelTime * 2));
       score += bonus; $('score').textContent = fa(score);
       health = Math.min(100, health + 30); $('health').style.width = health + '%';
       showBanner('همه رو زدی!', bonus ? 'جایزه‌ی سرعت: ' + fa(bonus) : '', 2500);
@@ -1018,11 +1077,11 @@ function update(dt) {
     m.phase += dt;
     if (m.hitFlash > 0) m.hitFlash -= dt;
     if (m.cool > 0) m.cool -= dt;
-    if (!window.__freeze) moveEntity(m, dt);
+    if (!window.__freeze) (FREE() ? moveFree : moveEntity)(m, dt);
     if (state !== 'play') return;
     if (m.dead) continue;
     if (m.mode === 'attack') attackers++;
-    if (themeKey === 'missile' && m.mode === 'attack' && m.speed > 0.2) {
+    if (themeKey === 'missile' && (m.mode === 'attack' || m.mode === 'cruise') && m.speed > 0.2) {
       m.puffT -= dt;
       if (m.puffT <= 0) { m.puffT = 0.04; puff(m.pos.clone().addScaledVector(m.heading, -0.38 * m.T.scale), 0.03, 0xcccccc, 1.4); }
     }
@@ -1040,7 +1099,7 @@ function update(dt) {
         const d = m.pos.distanceTo(camPos);
         const approach = m.mode === 'attack' ? Math.max(0, 1 - d / m.aggro) : 0;
         const pitchMul = themeKey === 'missile' ? 1 + approach * 0.8 + (m.mode === 'attack' ? 0.2 : -0.3) : 1 + approach * 0.25;
-        const loud = themeKey === 'missile' ? (m.mode === 'attack' ? 1 : 0.15) : (m.mode === 'attack' ? 1 : 0.55);
+        const loud = m.mode === 'cruise' ? 0.75 : themeKey === 'missile' ? (m.mode === 'attack' ? 1 : 0.15) : (m.mode === 'attack' ? 1 : 0.55);
         moveVoice(m.voice, m.pos, loud, pitchMul);
       } else if (m.voice) { stopVoice(m.voice); m.voice = null; }
     });
@@ -1048,7 +1107,8 @@ function update(dt) {
 
   if (mosquitoes.length) {
     const nearest = Math.min(...mosquitoes.map(m => m.pos.distanceTo(camPos)));
-    if (attackers) hintEl.textContent = attackers > 1 ? fa(attackers) + ' تا ' + theme.one + ' دارن حمله می‌کنن!' : 'یه ' + theme.one + ' داره حمله می‌کنه!';
+    if (FREE()) hintEl.textContent = nearest > 2.4 ? 'نزدیک‌ترین ' + theme.one + ' حدود ' + fa(Math.round(nearest)) + ' متر دوره.' : '';
+    else if (attackers) hintEl.textContent = attackers > 1 ? fa(attackers) + ' تا ' + theme.one + ' دارن حمله می‌کنن!' : 'یه ' + theme.one + ' داره حمله می‌کنه!';
     else if (nearest > 2.4) hintEl.textContent = 'نزدیک‌ترین ' + theme.one + ' حدود ' + fa(Math.round(nearest)) + ' متر دوره. راه برو و دنبالش بگرد.' +
       (mode === 'sensor' && hasSensor && steps === 0 && levelTime > 6 ? ' (گوشی رو جلوت نگه دار و راه برو، قدم‌هات شمرده می‌شه)' : '');
     else hintEl.textContent = 'خیلی نزدیکی، دور و برت رو نگاه کن.';
@@ -1201,7 +1261,14 @@ $('themes').addEventListener('click', e => {
   try { localStorage.setItem('vizviz_theme', themeKey); } catch (_) {}
   applyTheme();
 });
+$('modes').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  gameMode = b.dataset.m;
+  try { localStorage.setItem('vizviz_mode', gameMode); } catch (_) {}
+  applyMode();
+});
 applyTheme();
+applyMode();
 let canXR = false;
 xrSupported().then(ok => {
   canXR = ok;
