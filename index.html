@@ -133,9 +133,11 @@
   .home button.big { width: 100%; max-width: 420px; font-size: 22px; padding: 15px; margin-top: 4px; background: linear-gradient(180deg, #ffd75a, #ffb81f); animation: pulse 2.4s ease-in-out infinite; }
   @keyframes pulse { 0%,100% { box-shadow: 0 4px 18px rgba(255,190,40,.35) } 50% { box-shadow: 0 4px 30px rgba(255,190,40,.65) } }
   #helpScreen { z-index: 20; background: rgba(5,6,9,.85); backdrop-filter: blur(6px); }
-  .helpBox { max-width: 440px; width: 100%; background: #14171e; border: 1px solid rgba(255,255,255,.1); border-radius: 20px; padding: 18px 18px 14px; text-align: right; }
-  .helpBox h2 { margin: 0 0 6px; color: var(--accent); font-size: 22px; }
-  .helpBox p { font-size: 14px; line-height: 1.9; margin: 8px 0; }
+  .helpBox { max-width: 480px; width: 100%; max-height: 88vh; overflow-y: auto; background: #14171e; border: 1px solid rgba(255,255,255,.12); border-radius: 20px; padding: 20px 20px 16px; text-align: right; }
+  .helpBox h2 { margin: 0 0 8px; color: var(--accent); font-size: 28px; }
+  .helpBox p { font-size: 18px; line-height: 2; margin: 10px 0; color: #f2f2f2; font-weight: 500; }
+  .helpBox p.small { font-size: 16px; color: #c8ccd4; }
+  .helpBox b { color: var(--accent); }
   .helpBox button.big { width: 100%; margin-top: 10px; }
   .hidden { display: none !important; }
 </style>
@@ -207,6 +209,7 @@
     <p id="intro"></p>
     <p id="modeDesc"></p>
     <p id="intro2"></p>
+    <p>اگه کنار نقطه‌ای توی <b>رادار</b> علامت <b>▲</b> باشه، هدف بالای سرته و باید گوشی رو بالاتر بگیری، و <b>▼</b> یعنی پایین‌تره. فلش‌های لبه‌ی صفحه هم سمت نزدیک‌ترین هدف رو نشون می‌دن.</p>
     <p>اگه درست وسط هدف بزنی «عالی!» میاد و امتیازش دو برابر می‌شه. هر مرحله یه جعبه‌ی جایزه‌ی سبز یه جایی ظاهر می‌شه، پیداش کن و بزن روش. هر سه مرحله یه غول آخر میاد.</p>
     <p class="small" id="modeNote"></p>
     <button class="big" id="helpClose">فهمیدم</button>
@@ -451,6 +454,7 @@ function sfx(type, arg) {
   else if (type === 'level') tone(440, 880, 0.4, 0.25, 'sine');
   else if (type === 'boom') { noise(0.9, 0.9, 2500, 80); tone(90, 30, 0.6, 0.6, 'sine'); }
   else if (type === 'launch') noise(0.6, 0.35, 600, 4000);
+  else if (type === 'whoosh') { noise(1.1, 0.45, 500, 3500); tone(themeKey === 'plane' ? 220 : 160, 90, 0.9, 0.12, 'sawtooth'); }
   else if (type === 'flap') noise(0.25, 0.25, 1500, 300);
   else if (type === 'chime') { tone(1320, 1320, 0.5, 0.18, 'sine'); setTimeout(() => sfx('chime2'), 90); }
   else if (type === 'chime2') tone(1980, 1980, 0.6, 0.14, 'sine');
@@ -606,26 +610,64 @@ function buildMissile(color, ghost) {
 function wingGeo(key, pts) {
   return geo(key, () => { const s = new THREE.Shape(); s.moveTo(pts[0][0], pts[0][1]); for (const p of pts.slice(1)) s.lineTo(p[0], p[1]); return new THREE.ShapeGeometry(s).rotateX(-Math.PI / 2); });
 }
-function buildBird(color, ghost) {
+// shape lying flat, with shape-x to the side and shape-y pointing forward (+Z)
+function flatGeo(key, pts) {
+  return geo(key, () => { const s = new THREE.Shape(); s.moveTo(pts[0][0], pts[0][1]); for (const p of pts.slice(1)) s.lineTo(p[0], p[1]); return new THREE.ShapeGeometry(s).rotateX(Math.PI / 2); });
+}
+// real-bird colour schemes, one per enemy type
+const BIRD_LOOK = {
+  normal:   { back: 0x3d6fd6, head: 0x3d6fd6, wing: 0x2f5bbf, tip: 0x15244e, tail: 0x24479c, breast: 0xe2793a, belly: 0xf3eee4, beak: 0x33302c },            // bluebird
+  fast:     { back: 0x1f2f6e, head: 0x1f2f6e, wing: 0x1a2556, tip: 0x0c1128, tail: 0x16204c, breast: 0xc8432a, belly: 0xf6f1e8, beak: 0x222222, fork: true }, // swallow
+  fat:      { back: 0x6e6458, head: 0x46403b, wing: 0x5e554a, tip: 0x2a2520, tail: 0x46403b, breast: 0xe5622a, belly: 0xf0e8dc, beak: 0xe8b030 },            // robin
+  splitter: { back: 0xf4c419, head: 0xf4c419, cap: 0x161616, wing: 0x1c1c1c, tip: 0x0e0e0e, bar: 0xf6f6f0, tail: 0x1c1c1c, breast: 0xf7d22e, belly: 0xfaf3d8, beak: 0xeea47a }, // goldfinch
+  mini:     { back: 0x5ccc4a, head: 0xf3e04a, wing: 0x3e9a3a, tip: 0x2a5ea8, tail: 0x2a5ea8, breast: 0x7ad65a, belly: 0x9ae070, beak: 0xe8c070 },            // budgie
+  boss:     { back: 0x5a3a20, head: 0xf5f2ea, wing: 0x4a2e18, tip: 0x1e1209, tail: 0xf5f2ea, breast: 0x5a3a20, belly: 0x4a2e18, beak: 0xf2c21e, hook: true }, // eagle
+  ghost:    { back: 0x9aa0aa, head: 0xb0b6c0, wing: 0x8a909a, tip: 0x6a707a, tail: 0x8a909a, breast: 0xc0c6d0, belly: 0xd8dce2, beak: 0x9a9a9a }
+};
+function buildBird(color, ghost, type = 'normal') {
+  const L = BIRD_LOOK[ghost ? 'ghost' : type] || BIRD_LOOK.normal;
   const root = new THREE.Group(), mats = [];
-  const feather = stdMat(ghost ? 0x8a909a : color, { roughness: 0.9, side: THREE.DoubleSide }); mats.push(feather);
-  const belly = stdMat(0xeee6d6, { roughness: 0.9 }); mats.push(belly);
-  const beakM = stdMat(0xe8a020, { roughness: 0.5 }); mats.push(beakM);
+  const M = (c, o) => { const m = stdMat(c, { roughness: 0.85, ...o }); mats.push(m); return m; };
+  const backM = M(L.back), headM = M(L.head), breastM = M(L.breast), bellyM = M(L.belly);
+  const wingM = M(L.wing, { side: THREE.DoubleSide }), tipM = M(L.tip, { side: THREE.DoubleSide }), tailM = M(L.tail, { side: THREE.DoubleSide });
+  const beakM = M(L.beak, { roughness: 0.4 });
+  const ringM = new THREE.MeshBasicMaterial({ color: 0xf4f4f0 });
   const eyeM = new THREE.MeshBasicMaterial({ color: 0x111111 });
-  root.add(mesh(geo('bb', () => new THREE.SphereGeometry(0.045, 18, 12).scale(0.85, 0.8, 1.6)), feather));
-  root.add(mesh(geo('bbl', () => new THREE.SphereGeometry(0.04, 16, 10).scale(0.8, 0.7, 1.4)), belly, 0, -0.012, 0.01));
-  root.add(mesh(geo('bh', () => new THREE.SphereGeometry(0.03, 16, 12)), feather, 0, 0.022, 0.075));
-  root.add(mesh(geo('bk', () => new THREE.ConeGeometry(0.009, 0.035, 10).rotateX(Math.PI / 2)), beakM, 0, 0.018, 0.115));
-  for (const s of [1, -1]) root.add(mesh(geo('be', () => new THREE.SphereGeometry(0.0065, 8, 6)), eyeM, s * 0.022, 0.03, 0.093));
-  const tail = mesh(wingGeo('bt', [[0, 0], [0.03, -0.075], [0, -0.065], [-0.03, -0.075]]), feather, 0, 0.004, -0.06); root.add(tail);
-  // two-segment wings that flap with a lag, like a real bird
-  const inner = wingGeo('bwi', [[0, 0.03], [0.09, 0.02], [0.09, -0.035], [0, -0.03]]);
-  const outer = wingGeo('bwo', [[0, 0.02], [0.05, 0.012], [0.1, -0.02], [0.05, -0.045], [0, -0.035]]);
+  // body: darker back on top, coloured breast in front, pale belly underneath
+  root.add(mesh(geo('bb', () => new THREE.SphereGeometry(0.045, 20, 14).scale(0.85, 0.8, 1.6)), backM));
+  root.add(mesh(geo('bbr', () => new THREE.SphereGeometry(0.036, 18, 12).scale(0.95, 0.9, 1.05)), breastM, 0, -0.01, 0.038));
+  root.add(mesh(geo('bbl', () => new THREE.SphereGeometry(0.036, 16, 10).scale(0.85, 0.65, 1.45)), bellyM, 0, -0.016, -0.01));
+  // head with optional dark cap, eye rings and eyes
+  root.add(mesh(geo('bh', () => new THREE.SphereGeometry(0.03, 18, 14)), headM, 0, 0.022, 0.075));
+  if (L.cap) root.add(mesh(geo('bcap', () => new THREE.SphereGeometry(0.031, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.42).rotateX(0.35)), M(L.cap), 0, 0.023, 0.077));
+  // beak: upper and lower halves, hooked for the eagle
+  const bk = L.hook ? 0.042 : 0.032;
+  const upper = mesh(geo('bku' + bk, () => new THREE.ConeGeometry(0.0095, bk, 12).rotateX(Math.PI / 2).translate(0, 0, bk / 2)), beakM, 0, 0.02, 0.098);
+  upper.rotation.x = L.hook ? 0.35 : 0.08; root.add(upper);
+  const lower = mesh(geo('bkl', () => new THREE.ConeGeometry(0.007, 0.024, 10).rotateX(Math.PI / 2).translate(0, 0, 0.012)), beakM, 0, 0.012, 0.098);
+  lower.rotation.x = -0.1; root.add(lower);
+  for (const s of [1, -1]) {
+    root.add(mesh(geo('ber', () => new THREE.SphereGeometry(0.0085, 10, 8)), ringM, s * 0.0215, 0.03, 0.09));
+    root.add(mesh(geo('be', () => new THREE.SphereGeometry(0.0062, 10, 8)), eyeM, s * 0.024, 0.031, 0.0925));
+  }
+  // tail: fan, or long fork for the swallow
+  const tailPts = L.fork ? [[0.012, 0], [0.045, -0.13], [0.02, -0.07], [0, -0.06], [-0.02, -0.07], [-0.045, -0.13], [-0.012, 0]]
+                         : [[0.012, 0], [0.032, -0.075], [0.012, -0.082], [0, -0.078], [-0.012, -0.082], [-0.032, -0.075], [-0.012, 0]];
+  const tail = mesh(flatGeo(L.fork ? 'btf' : 'bt', tailPts), tailM, 0, 0.006, -0.055); tail.rotation.x = 0.12; root.add(tail);
+  // two-segment wings that flap with a lag, like a real bird: coverts in the wing colour, darker primaries at the tip
+  const inner = flatGeo('bwi2', [[0, 0.03], [0.05, 0.034], [0.09, 0.024], [0.09, -0.028], [0.05, -0.036], [0, -0.03]]);
+  const outer = flatGeo('bwo2', [[0, 0.024], [0.05, 0.018], [0.105, -0.01], [0.112, -0.03], [0.085, -0.04], [0.05, -0.042], [0, -0.028]]);
+  const cov = flatGeo('bwc', [[0, 0.03], [0.05, 0.034], [0.09, 0.024], [0.09, 0.0], [0.05, 0.004], [0, 0.002]]);
+  const barG = flatGeo('bwb', [[0.004, -0.004], [0.088, 0.0], [0.088, -0.01], [0.004, -0.014]]);
+  const coverM = M(L.back, { side: THREE.DoubleSide });
+  const barM = L.bar ? M(L.bar, { side: THREE.DoubleSide }) : null;
   const wings = [];
   for (const s of [1, -1]) {
-    const shoulder = new THREE.Group(); shoulder.position.set(s * 0.025, 0.018, 0.01); shoulder.scale.x = s;
-    shoulder.add(mesh(inner, feather));
-    const elbow = new THREE.Group(); elbow.position.x = 0.088; elbow.add(mesh(outer, feather)); shoulder.add(elbow);
+    const shoulder = new THREE.Group(); shoulder.position.set(s * 0.025, 0.018, 0.012); shoulder.scale.x = s;
+    shoulder.add(mesh(inner, wingM));
+    shoulder.add(mesh(cov, coverM, 0, 0.0015, 0));
+    if (barM) shoulder.add(mesh(barG, barM, 0, 0.002, 0));
+    const elbow = new THREE.Group(); elbow.position.x = 0.088; elbow.add(mesh(outer, tipM)); shoulder.add(elbow);
     root.add(shoulder); wings.push({ shoulder, elbow, s });
   }
   return { root, mats, parts: { wings, eyeM } };
@@ -680,45 +722,80 @@ function paintLathe(g, back, belly) {
   const out = g.clone(); out.setAttribute('color', new THREE.BufferAttribute(c, 3));
   return out;
 }
+// fin outline in the side plane: shape-x runs along the body (+Z forward), shape-y is up
+function finGeo(key, draw, depth = 0.006) {
+  return geo(key, () => { const sh = new THREE.Shape(); draw(sh);
+    return new THREE.ExtrudeGeometry(sh, { depth, bevelEnabled: true, bevelThickness: 0.0015, bevelSize: 0.0015, bevelSegments: 1, curveSegments: 10 }).translate(0, 0, -depth / 2).rotateY(-Math.PI / 2); });
+}
 function buildShark(color, ghost) {
   const root = new THREE.Group(), mats = [];
   const back = new THREE.Color(ghost ? 0x9ab0c0 : color), belly = new THREE.Color(0xeeeae2);
   const skin = stdMat(0xffffff, { roughness: 0.5, vertexColors: true }); mats.push(skin);
   const fin = stdMat(back.getHex(), { roughness: 0.55, side: THREE.DoubleSide }); mats.push(fin);
+  const pale = stdMat(0xe6e2da, { roughness: 0.55, side: THREE.DoubleSide }); mats.push(pale);
   const dark = stdMat(0x2a0d10, { roughness: 0.8 }); mats.push(dark);
-  const toothM = stdMat(0xf8f6ee, { roughness: 0.3 }); mats.push(toothM);
+  const throat = new THREE.MeshBasicMaterial({ color: 0x2a0306 });
+  const toothM = stdMat(0xfbf8ee, { roughness: 0.25 }); mats.push(toothM);
   const eyeM = new THREE.MeshBasicMaterial({ color: 0x050505 });
   // front body: from the tail joint (z=-0.12) to the snout
   const front = latheZ('shF', [[0.0, -0.13], [0.07, -0.12], [0.085, -0.02], [0.09, 0.05], [0.08, 0.14], [0.06, 0.22], [0.035, 0.28], [0.012, 0.31], [0.0, 0.315]]);
   root.add(new THREE.Mesh(paintLathe(front, back, belly), skin));
-  // tail section bends from a pivot at the joint
+  // tail section bends from a pivot at the joint and narrows to a thin stalk
   const tail = new THREE.Group(); tail.position.z = -0.12; root.add(tail);
-  const rear = latheZ('shR', [[0.0, -0.2], [0.018, -0.19], [0.035, -0.14], [0.055, -0.06], [0.07, 0.0], [0.0, 0.01]]);
+  const rear = latheZ('shR2', [[0.0, -0.215], [0.014, -0.205], [0.02, -0.17], [0.036, -0.11], [0.056, -0.05], [0.07, 0.0], [0.0, 0.01]]);
   tail.add(new THREE.Mesh(paintLathe(rear, back, belly), skin));
-  const caudal = new THREE.Group(); caudal.position.z = -0.19; tail.add(caudal);
-  const cg = geo('shC', () => { const sh = new THREE.Shape(); sh.moveTo(0, 0); sh.quadraticCurveTo(-0.05, 0.08, -0.1, 0.15); sh.lineTo(-0.07, 0.05); sh.quadraticCurveTo(-0.06, -0.02, -0.08, -0.08); sh.quadraticCurveTo(-0.03, -0.04, 0, -0.01);
-    return new THREE.ExtrudeGeometry(sh, { depth: 0.006, bevelEnabled: false }).translate(0, 0, -0.003).rotateY(Math.PI / 2); });
-  caudal.add(mesh(cg, fin));
-  // dorsal fin, pectorals, small second dorsal
-  const dg = geo('shD', () => { const sh = new THREE.Shape(); sh.moveTo(0.06, 0); sh.quadraticCurveTo(0.03, 0.04, -0.03, 0.1); sh.quadraticCurveTo(-0.02, 0.04, -0.05, 0); sh.lineTo(0.06, 0);
-    return new THREE.ExtrudeGeometry(sh, { depth: 0.008, bevelEnabled: true, bevelThickness: 0.002, bevelSize: 0.002, bevelSegments: 1 }).translate(0, 0, -0.004).rotateY(Math.PI / 2); });
-  root.add(mesh(dg, fin, 0, 0.065, 0.02));
-  const d2 = mesh(dg, fin, 0, 0.035, -0.1); d2.scale.setScalar(0.35); tail.add(d2); d2.position.set(0, 0.04, 0.0);
-  const pg = geo('shP', () => { const sh = new THREE.Shape(); sh.moveTo(0, 0.03); sh.lineTo(0.12, -0.04); sh.lineTo(0.1, -0.06); sh.lineTo(0, -0.02);
-    return new THREE.ShapeGeometry(sh).rotateX(-Math.PI / 2); });
+  // tail fin: a tall crescent, upper lobe longer than the lower one, swept back
+  const caudal = new THREE.Group(); caudal.position.z = -0.2; tail.add(caudal);
+  caudal.add(mesh(finGeo('shC2', sh => {
+    sh.moveTo(0.02, 0.016);
+    sh.quadraticCurveTo(-0.025, 0.06, -0.1, 0.165);      // upper lobe, leading edge
+    sh.quadraticCurveTo(-0.06, 0.07, -0.042, 0.0);       // concave trailing edge into the fork
+    sh.quadraticCurveTo(-0.05, -0.05, -0.08, -0.105);    // lower lobe, trailing edge
+    sh.quadraticCurveTo(-0.025, -0.05, 0.02, -0.014);    // lower lobe, leading edge
+    sh.lineTo(0.02, 0.016);
+  }), fin));
+  // keel on the tail stalk
+  for (const sd of [1, -1]) { const k = mesh(geo('shK', () => new THREE.BoxGeometry(0.012, 0.004, 0.05)), fin, sd * 0.012, 0, -0.18); k.rotation.y = sd * 0.1; tail.add(k); }
+  // dorsal fin: tall triangle with a curved leading edge and the tip swept back
+  const dg = finGeo('shD2', sh => {
+    sh.moveTo(0.06, 0);
+    sh.quadraticCurveTo(0.035, 0.06, -0.035, 0.105);
+    sh.quadraticCurveTo(-0.03, 0.04, -0.055, 0);
+    sh.lineTo(0.06, 0);
+  }, 0.008);
+  root.add(mesh(dg, fin, 0, 0.068, 0.02));
+  const d2 = mesh(dg, fin, 0, 0.034, -0.11); d2.scale.setScalar(0.28); tail.add(d2);
+  const an = mesh(dg, pale, 0, -0.032, -0.115); an.scale.set(0.28, -0.28, 0.28); tail.add(an);
+  // pectoral fins: long, swept back and slightly down
+  const pg = geo('shP2', () => { const sh = new THREE.Shape(); sh.moveTo(0, 0.035); sh.quadraticCurveTo(0.07, 0.0, 0.135, -0.065); sh.quadraticCurveTo(0.08, -0.04, 0, -0.025); sh.lineTo(0, 0.035);
+    return new THREE.ShapeGeometry(sh, 10).rotateX(Math.PI / 2); });
+  const pv = geo('shV', () => { const sh = new THREE.Shape(); sh.moveTo(0, 0.015); sh.lineTo(0.04, -0.03); sh.lineTo(0, -0.02);
+    return new THREE.ShapeGeometry(sh).rotateX(Math.PI / 2); });
   for (const sd of [1, -1]) {
-    const pf = mesh(pg, fin, sd * 0.055, -0.035, 0.1); pf.scale.x = sd; pf.rotation.z = sd * -0.45; root.add(pf);
-    root.add(mesh(geo('shE', () => new THREE.SphereGeometry(0.009, 10, 8)), eyeM, sd * 0.05, 0.02, 0.215));
-    for (let i = 0; i < 4; i++) { const gl = mesh(geo('shG', () => new THREE.BoxGeometry(0.002, 0.035, 0.004)), dark, sd * 0.07, -0.005, 0.15 - i * 0.015); gl.rotation.z = sd * 0.25; root.add(gl); }
+    const pf = mesh(pg, fin, sd * 0.05, -0.045, 0.1); pf.scale.x = sd; pf.rotation.z = sd * -0.4; root.add(pf);
+    const vf = mesh(pv, fin, sd * 0.03, -0.06, -0.08); vf.scale.x = sd; vf.rotation.z = sd * -0.5; root.add(vf);
+    root.add(mesh(geo('shE', () => new THREE.SphereGeometry(0.008, 10, 8)), eyeM, sd * 0.046, 0.016, 0.222));
+    for (let i = 0; i < 5; i++) { const gl = mesh(geo('shG', () => new THREE.BoxGeometry(0.002, 0.04, 0.004)), dark, sd * 0.071, -0.008, 0.16 - i * 0.014); gl.rotation.z = sd * 0.25; root.add(gl); }
   }
-  // jaw with teeth, opens when attacking
-  const jaw = new THREE.Group(); jaw.position.set(0, -0.035, 0.24); root.add(jaw);
-  jaw.add(mesh(geo('shM', () => new THREE.SphereGeometry(0.04, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2).scale(1.1, 0.45, 1.0).rotateX(Math.PI)), dark, 0, 0, -0.01));
-  const tg = geo('shT', () => new THREE.ConeGeometry(0.0045, 0.014, 5));
-  for (let i = 0; i < 11; i++) {
-    const a = -Math.PI * 0.45 + i * (Math.PI * 0.9 / 10);
-    const t1 = mesh(tg, toothM, Math.sin(a) * 0.04, 0.004, Math.cos(a) * 0.035 - 0.01); jaw.add(t1);
-    const t2 = mesh(tg, toothM, Math.sin(a) * 0.038, -0.006, Math.cos(a) * 0.033 - 0.01); t2.rotation.x = Math.PI; root.add(t2); t2.position.add(jaw.position);
+  // mouth: dark throat under the snout, corners pulled down, rows of big triangular teeth top and bottom
+  const MZ = 0.205;                              // back of the mouth (jaw hinge)
+  const mouthArc = (i, n) => { const a = -1.25 + 2.5 * i / (n - 1); return { a, x: Math.sin(a), z: Math.cos(a), k: Math.sin(a) ** 2 }; };
+  root.add(mesh(geo('shTh2', () => new THREE.SphereGeometry(0.04, 18, 10).scale(0.95, 0.5, 0.75)), throat, 0, -0.052, MZ + 0.004));
+  const tooth = geo('shT2', () => new THREE.ConeGeometry(0.0062, 0.021, 4).scale(1, 1, 0.35));
+  const N = 13;
+  for (let i = 0; i < N; i++) {
+    const { a, x, z, k } = mouthArc(i, N), sz = 1.15 - 0.55 * k;
+    const t = mesh(tooth, toothM, x * 0.04, -0.048 - 0.024 * k, MZ + z * 0.042);
+    t.rotation.set(Math.PI - 0.15, a, 0); t.scale.setScalar(sz); root.add(t);   // upper row, pointing down
+  }
+  // lower jaw hinges at the back of the mouth and drops open when attacking
+  const jaw = new THREE.Group(); jaw.position.set(0, -0.062, MZ); root.add(jaw);
+  const chin = latheZ('shJ2', [[0.0, -0.01], [0.036, -0.004], [0.038, 0.018], [0.028, 0.038], [0.0, 0.046]]);
+  const chinM = new THREE.Mesh(paintLathe(chin, belly, belly), skin); chinM.scale.set(1.1, 0.34, 1); chinM.position.y = -0.002; jaw.add(chinM);
+  for (let i = 0; i < N - 2; i++) {
+    const { a, x, z, k } = mouthArc(i, N - 2), sz = 1.0 - 0.5 * k;
+    const t = mesh(tooth, toothM, x * 0.034, 0.015 - 0.012 * k, z * 0.038);
+    t.rotation.set(0.15, a, 0); t.scale.setScalar(sz); jaw.add(t);             // lower row, pointing up
   }
   return { root, mats, parts: { tail, caudal, jaw } };
 }
@@ -810,7 +887,7 @@ function weaveAmount() { return level <= 2 ? 0 : Math.min(0.6, (level - 2) * 0.1
 function hidingSpot(minD, maxD) {
   const a = Math.random() * Math.PI * 2, d = rand(minD, maxD);
   let y;
-  if (themeKey === 'plane' || themeKey === 'bird' || themeKey === 'star') y = rand(1.3, 2.3);
+  if (themeKey === 'plane' || themeKey === 'bird' || themeKey === 'star') y = rand(1.0, 2.0);
   else if (themeKey === 'shark') y = rand(0.6, 2.1);
   else y = Math.random() < 0.25 ? rand(0.25, 0.5) : (Math.random() < 0.3 ? rand(1.9, 2.4) : rand(0.6, 1.8));
   return V(origin.x + Math.cos(a) * d, y, origin.z + Math.sin(a) * d);
@@ -820,7 +897,7 @@ function spawn(typeKey, pos, plan) {
   const T = TYPES[typeKey];
   const color = PALETTE[themeKey][typeKey];
   const build = { plane: buildPlane, missile: buildMissile, bird: buildBird, mosquito: buildMosquito, star: buildStar, shark: buildShark }[themeKey];
-  const model = build(color, !!T.ghost);
+  const model = build(color, !!T.ghost, typeKey);
   const baseScale = themeKey === 'missile' ? (T.boss ? 0.9 : 1.6) : 1;
   model.root.scale.setScalar(T.scale * baseScale);
   if (T.ghost) model.mats.forEach(m => { m.transparent = true; m.opacity = 0.25; });
@@ -919,7 +996,7 @@ function impact(m) {
     // fly on past the player, then come round later from a new spot
     const ahead = m.heading.clone(); ahead.y = 0; if (ahead.lengthSq() < 0.01) ahead.set(1, 0, 0); ahead.normalize();
     const d = rand(2.5, Math.max(3, areaR * 0.7));
-    m.home.set(camPos.x + ahead.x * d + rand(-1, 1), themeKey === 'mosquito' ? rand(0.5, 2.2) : rand(1.4, 2.3), camPos.z + ahead.z * d + rand(-1, 1));
+    m.home.set(camPos.x + ahead.x * d + rand(-1, 1), themeKey === 'mosquito' ? rand(0.5, 2.2) : rand(1.1, 2.0), camPos.z + ahead.z * d + rand(-1, 1));
     m.mode = 'flee'; m.cool = 6;
   }
   if (health <= 0) gameOver(false);
@@ -975,7 +1052,8 @@ function kill(m, sx, sy, perfect) {
     else {
       for (let i = 0; i < 14; i++) {
         const a = Math.random() * Math.PI * 2, s = 30 + Math.random() * 110;
-        particles.push({ feather: true, x: sx, y: sy, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 1 + Math.random() * 0.4, r: 2 + Math.random() * 2.5, c: Math.random() < 0.5 ? '#eee6d6' : '#' + PALETTE.bird[m.type].toString(16).padStart(6, '0') });
+        const BL = BIRD_LOOK[m.T.ghost ? 'ghost' : m.type] || BIRD_LOOK.normal, fc = [BL.back, BL.breast, BL.wing, BL.belly][i % 4];
+        particles.push({ feather: true, x: sx, y: sy, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 1 + Math.random() * 0.4, r: 2 + Math.random() * 2.5, c: '#' + fc.toString(16).padStart(6, '0') });
       }
       sfx('flap');
     }
@@ -1117,6 +1195,35 @@ function turnToward(h, desired, rate, dt) {
   h.lerp(desired, Math.min(1, rate * dt / ang)).normalize();
 }
 
+// Flyover: now and then a target swoops right over the player's head and out the other side.
+const FLYOVER = { plane: 1, bird: 1, shark: 1, missile: 1, star: 0.6 };
+function canFlyover(m) {
+  return FLYOVER[themeKey] && !m.T.boss && !m.T.ghost && !mosquitoes.some(o => o.fly && !o.dead) && m.pos.distanceTo(camPos) > 1.8;
+}
+function startFlyover(m) {
+  const a = Math.atan2(m.pos.z - camPos.z, m.pos.x - camPos.x) + Math.PI + rand(-0.35, 0.35);
+  const d = rand(2.2, Math.max(2.8, areaR * 0.6));
+  m.fly = { stage: 0, t: 14, h: rand(0.45, 0.7), far: V(camPos.x + Math.cos(a) * d, rand(1.0, 1.9), camPos.z + Math.sin(a) * d) };
+}
+// returns the direction to steer in, or null once the pass is over
+function flyoverDir(m, dt) {
+  const f = m.fly; f.t -= dt;
+  if (f.t <= 0) { m.fly = null; return null; }
+  if (f.stage === 0) {
+    const tx = camPos.x - m.pos.x, tz = camPos.z - m.pos.z, hd = Math.hypot(tx, tz);
+    // passed overhead (or right next to it, and now moving away)?
+    if (hd < 0.35 || (hd < 1.0 && tx * m.heading.x + tz * m.heading.z < 0)) {
+      f.stage = 1; sfx('whoosh');
+      // carry on in the same direction rather than turning back
+      const h = V(m.heading.x, 0, m.heading.z).normalize(), d = rand(2.2, Math.max(2.8, areaR * 0.6));
+      f.far.set(camPos.x + h.x * d, rand(1.0, 1.9), camPos.z + h.z * d);
+    }
+    else return V(tx, camPos.y + f.h - m.pos.y, tz).normalize();
+  }
+  if (m.pos.distanceTo(f.far) < 0.6) { m.fly = null; return null; }
+  return f.far.clone().sub(m.pos).normalize();
+}
+
 function moveEntity(m, dt) {
   const toP = _d.copy(camPos).sub(m.pos), dP = toP.length();
   const T = m.T;
@@ -1158,8 +1265,18 @@ function moveEntity(m, dt) {
     }
     m.pos.addScaledVector(m.heading, m.speed * dt);
     if (m.pos.distanceTo(camPos) < 0.3) { impact(m); return; }
+  } else if (m.fly && m.mode === 'rest') {
+    const desired = flyoverDir(m, dt);
+    m.cool = Math.max(m.cool, 1.5);          // a buzz-over is a scare, not an attack
+    if (desired) {
+      turnToward(m.heading, desired, theme.turn * 1.2, dt);
+      m.speed += (Math.max(theme.cruise * 1.6, 0.6) - m.speed) * Math.min(1, dt * 1.2);
+      m.pos.addScaledVector(m.heading, m.speed * dt);
+    } else m.home.copy(m.pos);
   } else if (themeKey === 'plane' || themeKey === 'bird' || themeKey === 'shark') {
     // cruise: circle around the home spot (or fly to a new one), banking in the turns
+    m.flyCool = (m.flyCool ?? rand(6, 16)) - dt;
+    if (m.mode === 'rest' && m.flyCool <= 0) { m.flyCool = rand(12, 25); if (canFlyover(m) && Math.random() < 0.6) startFlyover(m); }
     const rel = _t.copy(m.pos).sub(m.home); rel.y = 0;
     const R = theme.orbit, rl = rel.length() || 0.001;
     let desired;
@@ -1204,11 +1321,17 @@ function moveFree(m, dt) {
   const T = m.T, lv = level - 1;
   const speed = FREE_SPEED[themeKey] * (1 + lv * 0.12) * (T.agile ? 1.3 : 1) * (T.hp > 1 ? 0.8 : 1);
   m.wpT = (m.wpT || 0) - dt;
-  if (!m.wp || m.pos.distanceTo(m.wp) < 0.5 || m.wpT <= 0) { m.wp = hidingSpot(0.8, Math.max(2, areaR)); m.wpT = rand(5, 10); }
-  const desired = m.wp.clone().sub(m.pos).normalize();
-  // keep clear of the player's face
-  const away = _t.copy(m.pos).sub(camPos), d = away.length();
-  if (d < 0.9) desired.addScaledVector(away.normalize(), (0.9 - d) * 4);
+  let desired = m.fly ? flyoverDir(m, dt) : null;
+  if (!desired) {
+    if (!m.wp || m.pos.distanceTo(m.wp) < 0.5 || m.wpT <= 0) {
+      m.wp = hidingSpot(0.8, Math.max(2, areaR)); m.wpT = rand(5, 10);
+      if (canFlyover(m) && Math.random() < 0.3) startFlyover(m);
+    }
+    desired = m.wp.clone().sub(m.pos).normalize();
+  }
+  // keep clear of the player's face (a flyover passes above it, so only push if it gets really close)
+  const away = _t.copy(m.pos).sub(camPos), d = away.length(), clear = m.fly ? 0.4 : 0.9;
+  if (d < clear) desired.addScaledVector(away.normalize(), (clear - d) * 4);
   // manoeuvres: none on level 1, then gradually more
   const wv = (level <= 1 ? 0 : Math.min(0.9, lv * 0.12)) + (T.agile && level > 1 ? 0.15 : 0);
   if (wv > 0) {
@@ -1218,10 +1341,10 @@ function moveFree(m, dt) {
   }
   if (themeKey === 'mosquito') desired.add(_s.set(Math.sin(time * 3.1 + m.id), Math.sin(time * 4.3 + m.id * 2) * 0.6, Math.cos(time * 2.7 + m.id)).multiplyScalar(0.3));
   // stay between floor and ceiling
-  if (m.pos.y < 0.3) desired.y += 1; if (m.pos.y > 2.4) desired.y -= 1;
+  if (m.pos.y < 0.3) desired.y += 1; if (m.pos.y > (m.fly ? camPos.y + 1 : 2.4)) desired.y -= 1;
   desired.normalize();
   turnToward(m.heading, desired, theme.turn * (1 + lv * 0.08), dt);
-  m.speed += (speed - m.speed) * Math.min(1, dt * 1.2);
+  m.speed += ((m.fly ? speed * 1.3 : speed) - m.speed) * Math.min(1, dt * 1.2);
   m.pos.addScaledVector(m.heading, m.speed * dt);
   bankFromTurn(m, dt);
 }
@@ -1310,7 +1433,7 @@ function poseModel(m, dt) {
     P.tail.rotation.y = Math.sin(m.swimT) * 0.4;
     P.caudal.rotation.y = Math.sin(m.swimT - 0.9) * 0.45;
     r.rotateY(-Math.sin(m.swimT) * 0.07);
-    P.jaw.rotation.x = attack ? 0.35 + 0.12 * Math.sin(time * 9) : 0.04;
+    P.jaw.rotation.x = attack ? 0.5 + 0.12 * Math.sin(time * 9) : 0.2 + 0.05 * Math.sin(time * 1.3 + m.id);
   }
   if (P.qwings) for (const w of P.qwings) w.p.rotation.z = (0.2 + Math.random() * 0.9) * w.s;
   if (P.beacon) {
@@ -1481,18 +1604,24 @@ function project(p) {
   return { x: W / 2 + (v.x / z) * focal, y: H / 2 - (v.y / z) * focal, depth: z, v: [v.x, v.y, v.z], f: focal };
 }
 
-function drawEdgeArrow(v, dist) {
-  const ang = Math.atan2(-v[1], v[0] || 1e-3);
+function drawEdgeArrow(v, dist, color = '#ff3b3b') {
+  // behind you: point left or right (whichever way is shorter to turn), not up or down
+  const behind = v[2] > -0.05;
+  const vx = behind ? (v[0] >= 0 ? 1 : -1) * Math.max(Math.abs(v[0]), 0.5) : v[0], vy = behind ? v[1] * 0.3 : v[1];
+  const ang = Math.atan2(-vy, vx || 1e-3);
   const margin = 26, tx = Math.cos(ang), ty = Math.sin(ang);
   const s = Math.min(tx ? (W / 2 - margin) / Math.abs(tx) : Infinity, ty ? (H / 2 - margin) / Math.abs(ty) : Infinity);
   const danger = Math.max(0, Math.min(1, (2.5 - dist) / 2));
   const size = 10 + danger * 9;
   ctx.save();
   ctx.translate(W / 2 + tx * s, H / 2 + ty * s); ctx.rotate(ang);
-  ctx.globalAlpha = 0.6 + danger * 0.4; ctx.fillStyle = '#ff3b3b';
-  ctx.beginPath(); ctx.moveTo(size, 0); ctx.lineTo(-size * 0.7, size * 0.7); ctx.lineTo(-size * 0.7, -size * 0.7); ctx.closePath(); ctx.fill();
+  ctx.globalAlpha = 0.6 + danger * 0.4; ctx.fillStyle = color;
+  ctx.strokeStyle = 'rgba(0,0,0,.5)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(size, 0); ctx.lineTo(-size * 0.7, size * 0.7); ctx.lineTo(-size * 0.7, -size * 0.7); ctx.closePath(); ctx.fill(); ctx.stroke();
   ctx.restore();
 }
+// half the camera's real horizontal field of view (portrait phones see a much narrower slice than you'd think)
+function halfHFov() { return projM ? Math.atan(1 / projM[0]) : Math.atan((W / 2) / focal); }
 
 let _safeTop = null;
 function safeTop() {
@@ -1536,7 +1665,8 @@ function drawRadar() {
   ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   ctx.beginPath(); ctx.arc(cx, cy, R / 2, 0, Math.PI * 2); ctx.stroke();
   ctx.fillStyle = 'rgba(255,255,255,.12)';
-  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, R, -Math.PI / 2 - 0.5, -Math.PI / 2 + 0.5); ctx.closePath(); ctx.fill();
+  const hf = halfHFov();
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, R, -Math.PI / 2 - hf, -Math.PI / 2 + hf); ctx.closePath(); ctx.fill();
   const [fx, fz] = forwardFlat(), rx = -fz, rz = fx;
   const scale = R / Math.max(3, areaR);
   for (const m of mosquitoes) {
@@ -1547,7 +1677,16 @@ function drawRadar() {
     if (edge) { px *= (R - 4) / l; py *= (R - 4) / l; }
     ctx.fillStyle = m.T.boss ? '#ff4fd8' : m.mode === 'attack' ? '#ff3b3b' : '#ffcf3f';
     ctx.globalAlpha = edge ? 0.55 : 1;
-    ctx.beginPath(); ctx.arc(cx + px, cy + py, m.T.boss ? 6 : m.mode === 'attack' ? 4 : 3, 0, Math.PI * 2); ctx.fill();
+    const dr = m.T.boss ? 6 : m.mode === 'attack' ? 4.5 : 3.5;
+    ctx.beginPath(); ctx.arc(cx + px, cy + py, dr, 0, Math.PI * 2); ctx.fill();
+    if (m.offV) {
+      // the target is in front of you but above / below the screen: show which way to tilt the phone
+      const up = m.offV > 0, tx = cx + px + dr + 5, ty = cy + py;
+      ctx.globalAlpha = 1; ctx.beginPath();
+      if (up) { ctx.moveTo(tx, ty - 6); ctx.lineTo(tx - 4.5, ty + 2); ctx.lineTo(tx + 4.5, ty + 2); }
+      else { ctx.moveTo(tx, ty + 6); ctx.lineTo(tx - 4.5, ty - 2); ctx.lineTo(tx + 4.5, ty - 2); }
+      ctx.closePath(); ctx.fill();
+    }
   }
   if (crate) {
     const dx = crate.pos.x - camPos.x, dz = crate.pos.z - camPos.z;
@@ -1576,7 +1715,8 @@ function render(dt) {
   // 2D overlay: markers, arrows, radar, effects
   ctx.clearRect(0, 0, W, H);
   if (state === 'play' || state === 'over') {
-    let closestAttack = Infinity;
+    let closestAttack = Infinity, anyOn = false;
+    const offs = [];
     for (const m of mosquitoes) {
       const dist = m.pos.distanceTo(camPos);
       if (m.mode === 'attack') closestAttack = Math.min(closestAttack, dist);
@@ -1584,16 +1724,27 @@ function render(dt) {
       const r = pr.behind ? 0 : (theme.size * m.T.scale * (m.grow || 1) * pr.f) / pr.depth;
       const on = !pr.behind && pr.x > -r && pr.x < W + r && pr.y > -r && pr.y < H + r;
       m.screen = on ? { x: pr.x, y: pr.y, r, depth: pr.depth } : null;
+      // in front of you (left/right inside the view) but off the top or bottom of the screen?
+      const v = pr.v, fwd = -v[2];
+      m.offV = !on && fwd > 0.05 && Math.abs(v[0]) / fwd < Math.tan(halfHFov()) * 1.15 ? Math.sign(v[1]) : 0;
       if (on) {
-        if (r < 12 && (!m.T.ghost || dist < 1.3)) {
-          ctx.strokeStyle = m.mode === 'attack' ? 'rgba(255,60,60,.85)' : 'rgba(255,207,63,.65)';
-          ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(pr.x, pr.y, 16, 0, Math.PI * 2); ctx.stroke();
+        if (!m.T.ghost) anyOn = true;
+        if (r < 14 && (!m.T.ghost || dist < 1.3)) {
+          const pulse = 0.6 + 0.4 * Math.sin(time * 5 + m.id);
+          ctx.strokeStyle = m.mode === 'attack' ? 'rgba(255,60,60,.9)' : `rgba(255,207,63,${0.55 + 0.35 * pulse})`;
+          ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(pr.x, pr.y, 15 + 3 * pulse, 0, Math.PI * 2); ctx.stroke();
         }
         if (m.T.hp > 1 && !m.T.boss) for (let i = 0; i < m.T.hp; i++) {
           ctx.fillStyle = i < m.hp ? '#ffcf3f' : 'rgba(255,255,255,.3)';
           ctx.beginPath(); ctx.arc(pr.x + (i - (m.T.hp - 1) / 2) * 9, pr.y - Math.max(r, 12) - 8, 3, 0, Math.PI * 2); ctx.fill();
         }
       } else if (m.mode === 'attack' && !m.T.ghost) drawEdgeArrow(pr.v, dist);
+      else if (!m.T.ghost) offs.push([dist, m, pr.v]);
+    }
+    // nothing to see on screen: point at the two nearest targets so you know which way to turn
+    if (!anyOn && state === 'play') {
+      offs.sort((a, b) => a[0] - b[0]);
+      for (const [d, m, v] of offs.slice(0, 2)) drawEdgeArrow(v, 2, m.T.boss ? '#ff4fd8' : '#ffcf3f');
     }
     if (closestAttack < 1.4 && state === 'play') {
       const a = Math.min(0.45, (1.4 - closestAttack) * 0.45) * (0.7 + 0.3 * Math.sin(time * 12));
@@ -1688,7 +1839,7 @@ async function begin() {
   let xrOk = false;
   if (canXR) { try { await startXR(); xrOk = true; } catch (err) { console.warn('XR failed, using sensors', err); } }
   if (!xrOk) await Promise.all([enableSensors(), startCamera()]);
-  scene.fog = themeKey === 'shark' ? new THREE.Fog(0x0b4a66, 1.2, 9) : null;
+  scene.fog = themeKey === 'shark' ? new THREE.Fog(0x0b4a66, 1.5, Math.max(10, areaR * 1.6)) : null;
   state = 'play';
   resetGame();
 }
@@ -1713,7 +1864,8 @@ window.__vizviz = {
   get state() { return state; }, get mosquitoes() { return mosquitoes; }, get score() { return score; },
   get health() { return health; }, get level() { return level; }, set level(v) { level = v; }, camPos, camQ, swat,
   get crate() { return crate; }, get power() { return power; }, set crateAt(v) { crateAt = v; }, get slowmo() { return slowmoT; },
-  get lookYaw() { return lookYaw; }, set lookYaw(v) { lookYaw = v; }, set lookPitch(v) { lookPitch = v; }
+  get lookYaw() { return lookYaw; }, set lookYaw(v) { lookYaw = v; }, set lookPitch(v) { lookPitch = v; },
+  spawnType: (t) => spawn(t, camPos.clone()), flyover: (m) => startFlyover(m)
 };
 </script>
 </body>
