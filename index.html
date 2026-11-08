@@ -40,12 +40,16 @@
     transition: opacity .35s;
   }
   #hud {
-    position: absolute; top: 0; left: 0; right: 0; pointer-events: none;
-    padding: calc(env(safe-area-inset-top) + 10px) 16px 0;
-    display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+    position: absolute; bottom: 0; left: 0; right: 0; pointer-events: none;
+    padding: 0 16px calc(env(safe-area-inset-bottom) + 12px);
+    display: flex; justify-content: space-between; align-items: flex-end; gap: 12px;
     text-shadow: 0 1px 3px rgba(0,0,0,.8);
   }
-  .stat { font-size: 15px; line-height: 1.6; }
+  .stat { font-size: 15px; line-height: 1.6; min-width: 120px; }
+  #exitBtn {
+    pointer-events: auto; font: inherit; font-size: 15px; font-weight: 700; color: #fff; cursor: pointer;
+    background: rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.5); border-radius: 22px; padding: 8px 22px; margin-bottom: 4px;
+  }
   .stat b { color: var(--accent); font-size: 20px; }
   #healthWrap { width: 120px; height: 12px; border-radius: 6px; background: rgba(0,0,0,.5); overflow: hidden; border: 1px solid rgba(255,255,255,.4); margin-top: 4px; }
   #timer { font-size: 18px; color: var(--accent); font-weight: 700; margin-top: 2px; }
@@ -57,13 +61,16 @@
   }
   #banner small { display: block; font-size: 16px; color: #fff; font-weight: 600; }
   #hint {
-    position: absolute; bottom: calc(env(safe-area-inset-bottom) + 20px); right: 16px; left: 130px; text-align: right;
+    position: absolute; bottom: calc(env(safe-area-inset-bottom) + 92px); right: 16px; left: 16px; text-align: center;
     pointer-events: none; font-size: 14px; color: #fff; text-shadow: 0 1px 4px #000; line-height: 1.6;
   }
   .screen {
-    position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center;
-    padding: 24px 16px; text-align: center; background: rgba(8,9,12,.92); overflow-y: auto;
+    position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+    padding: calc(env(safe-area-inset-top) + 44px) 16px calc(env(safe-area-inset-bottom) + 24px); text-align: center; background: rgba(8,9,12,.92); overflow-y: auto;
   }
+  /* centred when it fits, top-aligned (never under the camera notch) when it doesn't */
+  .screen > :first-child { margin-top: auto !important; }
+  .screen > :last-child { margin-bottom: auto !important; }
   .screen h1 { font-size: 38px; margin: 0 0 6px; color: var(--accent); }
   .screen p { max-width: 440px; color: var(--fg); line-height: 1.9; margin: 6px 0; font-size: 15px; }
   .screen .small { color: var(--muted); font-size: 13px; }
@@ -91,6 +98,7 @@
   <div id="flash"></div>
   <div id="hud" class="hidden">
     <div class="stat">امتیاز: <b id="score">۰</b><br>مرحله: <span id="level">۱</span></div>
+    <button id="exitBtn">خروج</button>
     <div class="stat" style="text-align:left"><span id="leftLabel">پشه‌های مونده</span>: <b id="left">۰</b><div id="healthWrap"><div id="health"></div></div><div id="timer" class="hidden"></div></div>
   </div>
   <div id="banner"></div>
@@ -103,15 +111,15 @@
   <p class="small" id="intro2"></p>
   <p style="margin-top:12px">حالت بازی</p>
   <div class="sizes" id="modes">
-    <button data-m="attack" class="on">حمله به کاربر</button>
-    <button data-m="free">پرواز آزاد</button>
+    <button data-m="attack">حمله به کاربر</button>
+    <button data-m="free" class="on">پرواز آزاد</button>
   </div>
   <p class="small" id="modeDesc"></p>
   <p style="margin-top:12px" id="whatQ">چی بهت حمله کنه؟</p>
   <div class="sizes" id="themes">
-    <button data-t="mosquito" class="on">🦟 پشه</button>
+    <button data-t="mosquito">🦟 پشه</button>
     <button data-t="bird">🐦 پرنده</button>
-    <button data-t="plane">✈️ هواپیما</button>
+    <button data-t="plane" class="on">✈️ هواپیما</button>
     <button data-t="missile">🚀 موشک</button>
     <button data-t="star">⭐ ستاره</button>
   </div>
@@ -393,8 +401,8 @@ const THEMES = {
     speed: 0.9, turn: 4, bank: 0, aggro: 1.6, size: 0.12, impact: 'explode',
     sound: { wave: 'sine', f: 2.1, lfo: 5, depth: 0.01, tone: 0.35 } }
 };
-let gameMode = 'attack';
-try { if (localStorage.getItem('vizviz_mode') === 'free') gameMode = 'free'; } catch (_) {}
+let gameMode = 'free';   // default: free flight with planes
+try { if (localStorage.getItem('vizviz_mode') === 'attack') gameMode = 'attack'; } catch (_) {}
 const FREE = () => gameMode === 'free';
 function applyMode() {
   for (const x of $('modes').children) x.classList.toggle('on', x.dataset.m === gameMode);
@@ -404,7 +412,7 @@ function applyMode() {
   $('whatQ').textContent = FREE() ? 'چی پرواز کنه؟' : 'چی بهت حمله کنه؟';
   applyTheme();
 }
-let themeKey = 'mosquito';
+let themeKey = 'plane';
 try { const t = localStorage.getItem('vizviz_theme'); if (THEMES[t]) themeKey = t; } catch (_) {}
 let theme = THEMES[themeKey];
 function applyTheme() {
@@ -413,7 +421,7 @@ function applyTheme() {
   $('intro').textContent = FREE()
     ? theme.many + ' دور و برت در حال پروازن. راه برو، گوشی رو به اطراف بگیر، دنبالشون کن و با انگشت بزن روشون.'
     : theme.intro + ' راه برو، گوشی رو به اطراف بگیر و پیداشون کن. وقتی بهشون نزدیک بشی بهت حمله می‌کنن، پس قبل از اینکه بهت برسن با انگشت بزن روشون.';
-  $('intro2').textContent = 'رادار پایین صفحه نشون می‌ده ' + theme.many + ' کدوم طرف و چقدر دورن. با هدفون صداشون رو هم می‌شنوی.';
+  $('intro2').textContent = 'رادار بالای صفحه نشون می‌ده ' + theme.many + ' کدوم طرف و چقدر دورن. با هدفون صداشون رو هم می‌شنوی.';
   $('leftLabel').textContent = theme.many + 'ی مونده';
 }
 
@@ -1160,8 +1168,19 @@ function drawEdgeArrow(v, dist) {
   ctx.restore();
 }
 
+let _safeTop = null;
+function safeTop() {
+  if (_safeTop == null) {
+    const d = document.createElement('div');
+    d.style.cssText = 'position:fixed;top:0;height:env(safe-area-inset-top);visibility:hidden';
+    document.body.appendChild(d); _safeTop = Math.max(d.offsetHeight, 10); d.remove();
+  }
+  return _safeTop;
+}
+window.addEventListener('resize', () => { _safeTop = null; });
+
 function drawRadar() {
-  const R = 50, cx = 16 + R, cy = H - (16 + R) - 4;
+  const R = 50, cx = 16 + R, cy = safeTop() + 12 + R;
   ctx.save();
   ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
@@ -1295,6 +1314,18 @@ async function begin() {
   state = 'play';
   resetGame();
 }
+function exitToMenu() {
+  if (state !== 'play') return;
+  state = 'menu';
+  clearWorld();
+  $('hud').classList.add('hidden');
+  hintEl.textContent = ''; bannerEl.style.opacity = 0;
+  $('overScreen').classList.add('hidden');
+  $('startScreen').classList.remove('hidden');
+  try { const b = +localStorage.getItem('vizviz_best'); if (b) $('best').textContent = 'بهترین امتیاز: ' + fa(b); } catch (_) {}
+  if (xrSession) xrSession.end().catch(() => {});
+}
+$('exitBtn').addEventListener('click', exitToMenu);
 $('startBtn').addEventListener('click', begin);
 $('againBtn').addEventListener('click', begin);
 
