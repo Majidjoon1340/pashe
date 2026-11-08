@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#000000">
-<title>وزوز: حمله پشه‌ها</title>
+<title>وزوز: شکار پشه‌ها</title>
 <style>
   :root {
     --bg: #0b0d10;
@@ -19,6 +19,7 @@
     font-family: Vazirmatn, Tahoma, "Segoe UI", sans-serif;
     touch-action: none; user-select: none; -webkit-user-select: none;
   }
+  body.xr { background: transparent; }
   #cam, #fallbackBg {
     position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0;
     transition: filter .4s;
@@ -27,77 +28,86 @@
     background: radial-gradient(ellipse at 50% 40%, #3a3f47 0%, #1b1e23 60%, #0b0d10 100%);
     display: none;
   }
-  #game { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 1; }
+  #overlay { position: fixed; inset: 0; z-index: 1; }
+  #game { position: absolute; inset: 0; width: 100%; height: 100%; }
   #flash {
-    position: fixed; inset: 0; z-index: 2; pointer-events: none; opacity: 0;
+    position: absolute; inset: 0; pointer-events: none; opacity: 0;
     background: radial-gradient(ellipse at center, rgba(255,0,0,0) 30%, rgba(255,0,0,.75) 100%);
     transition: opacity .35s;
   }
   #hud {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 3; pointer-events: none;
+    position: absolute; top: 0; left: 0; right: 0; pointer-events: none;
     padding: calc(env(safe-area-inset-top) + 10px) 16px 0;
     display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
     text-shadow: 0 1px 3px rgba(0,0,0,.8);
   }
-  .stat { font-size: 15px; line-height: 1.5; }
+  .stat { font-size: 15px; line-height: 1.6; }
   .stat b { color: var(--accent); font-size: 20px; }
   #healthWrap { width: 120px; height: 12px; border-radius: 6px; background: rgba(0,0,0,.5); overflow: hidden; border: 1px solid rgba(255,255,255,.4); margin-top: 4px; }
   #health { height: 100%; width: 100%; background: linear-gradient(90deg, #ff4d4d, #ffcf3f); transition: width .25s; }
   #banner {
-    position: fixed; top: 38%; left: 0; right: 0; z-index: 3; text-align: center; pointer-events: none;
-    font-size: 34px; font-weight: 800; color: var(--accent); text-shadow: 0 2px 8px rgba(0,0,0,.9);
-    opacity: 0; transition: opacity .4s;
+    position: absolute; top: 36%; left: 16px; right: 16px; text-align: center; pointer-events: none;
+    font-size: 30px; font-weight: 800; color: var(--accent); text-shadow: 0 2px 8px rgba(0,0,0,.9);
+    opacity: 0; transition: opacity .4s; line-height: 1.6;
   }
-  #combo {
-    position: fixed; bottom: calc(env(safe-area-inset-bottom) + 24px); left: 0; right: 0; z-index: 3; text-align: center;
-    pointer-events: none; font-size: 20px; font-weight: 700; color: #fff; text-shadow: 0 2px 6px #000; opacity: 0; transition: opacity .3s;
+  #banner small { display: block; font-size: 16px; color: #fff; font-weight: 600; }
+  #hint {
+    position: absolute; bottom: calc(env(safe-area-inset-bottom) + 20px); right: 16px; left: 130px; text-align: right;
+    pointer-events: none; font-size: 14px; color: #fff; text-shadow: 0 1px 4px #000; line-height: 1.6;
   }
   .screen {
     position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center;
-    padding: 24px 16px; text-align: center; background: rgba(8,9,12,.88); backdrop-filter: blur(4px);
+    padding: 24px 16px; text-align: center; background: rgba(8,9,12,.92); overflow-y: auto;
   }
-  .screen h1 { font-size: 40px; margin: 0 0 6px; color: var(--accent); }
-  .screen p { max-width: 420px; color: var(--fg); line-height: 1.9; margin: 6px 0; font-size: 15px; }
+  .screen h1 { font-size: 38px; margin: 0 0 6px; color: var(--accent); }
+  .screen p { max-width: 440px; color: var(--fg); line-height: 1.9; margin: 6px 0; font-size: 15px; }
   .screen .small { color: var(--muted); font-size: 13px; }
   button.big {
-    margin-top: 18px; font: inherit; font-size: 20px; font-weight: 700; padding: 14px 40px; border-radius: 40px; border: 0;
+    margin-top: 16px; font: inherit; font-size: 20px; font-weight: 700; padding: 14px 40px; border-radius: 40px; border: 0;
     background: var(--accent); color: #1a1500; cursor: pointer; box-shadow: 0 4px 18px rgba(255,207,63,.35);
   }
-  ul.types { list-style: none; padding: 0; margin: 10px 0; font-size: 14px; color: var(--muted); line-height: 1.9; }
-  ul.types b { color: var(--fg); }
+  .sizes { display: flex; gap: 8px; margin: 10px 0 2px; flex-wrap: wrap; justify-content: center; }
+  .sizes button {
+    font: inherit; font-size: 15px; padding: 9px 14px; border-radius: 20px; cursor: pointer;
+    background: transparent; color: var(--fg); border: 1px solid rgba(255,255,255,.35);
+  }
+  .sizes button.on { background: rgba(255,207,63,.18); border-color: var(--accent); color: var(--accent); }
+  #modeNote { color: #9fe3a8; }
   .hidden { display: none !important; }
 </style>
 </head>
 <body>
 <video id="cam" playsinline muted autoplay></video>
 <div id="fallbackBg"></div>
-<canvas id="game"></canvas>
-<div id="flash"></div>
 
-<div id="hud" class="hidden">
-  <div class="stat">امتیاز: <b id="score">0</b><br>موج: <span id="wave">1</span></div>
-  <div class="stat" style="text-align:left">سلامتی<div id="healthWrap"><div id="health"></div></div></div>
+<div id="overlay">
+  <canvas id="game"></canvas>
+  <div id="flash"></div>
+  <div id="hud" class="hidden">
+    <div class="stat">امتیاز: <b id="score">۰</b><br>مرحله: <span id="level">۱</span></div>
+    <div class="stat" style="text-align:left">پشه‌های مونده: <b id="left">۰</b><div id="healthWrap"><div id="health"></div></div></div>
+  </div>
+  <div id="banner"></div>
+  <div id="hint"></div>
 </div>
-<div id="banner"></div>
-<div id="combo"></div>
 
 <div id="startScreen" class="screen">
   <h1>وزوز!</h1>
-  <p>پشه‌ها از همه طرف به سمتت حمله می‌کنن. گوشی رو به هر طرف بچرخون، بالا، پایین، پشت سرت، و قبل از اینکه نیشت بزنن با انگشت بزن روشون.</p>
-  <ul class="types">
-    <li><b>پشه‌ی معمولی</b>: یه ضربه</li>
-    <li><b>پشه‌ی تیزپرواز</b>: زیگزاگ می‌ره و سریعه</li>
-    <li><b>پشه‌ی چاق</b>: سه تا ضربه می‌خواد، نیشش دردناک‌تره</li>
-    <li><b>پشه‌ی دوقلوساز</b>: بکشیش دو تا می‌شه</li>
-    <li><b>پشه‌ی شبح</b>: تقریباً نامرئیه، به صداش گوش کن</li>
-  </ul>
-  <p class="small">با هدفون بازی کن تا بفهمی صدای وزوز از کدوم طرف میاد. فلش‌های لبه‌ی صفحه جای پشه‌هایی رو نشون می‌دن که خارج از دیدت هستن.</p>
+  <p>پشه‌ها توی خونه پخش شدن: بالای کمد، زیر میز، توی راهرو. راه برو، گوشی رو به اطراف بگیر و پیداشون کن. وقتی بهشون نزدیک بشی بهت حمله می‌کنن، پس قبل از اینکه نیشت بزنن با انگشت بزن روشون.</p>
+  <p class="small">رادار پایین صفحه نشون می‌ده پشه‌ها کدوم طرف و چقدر دورن. با هدفون صدای وزوزشون رو هم می‌شنوی.</p>
+  <p style="margin-top:12px">جایی که بازی می‌کنی چقدر بزرگه؟</p>
+  <div class="sizes" id="sizes">
+    <button data-r="3">یه اتاق</button>
+    <button data-r="6" class="on">کل خونه</button>
+    <button data-r="12">حیاط یا فضای باز</button>
+  </div>
+  <p class="small" id="modeNote"></p>
   <button class="big" id="startBtn">شروع</button>
   <p class="small" id="best"></p>
 </div>
 
 <div id="overScreen" class="screen hidden">
-  <h1>نیش خوردی!</h1>
+  <h1 id="overTitle">نیش خوردی!</h1>
   <p id="overText"></p>
   <button class="big" id="againBtn">دوباره</button>
 </div>
@@ -109,23 +119,23 @@
   // ---------- DOM ----------
   const $ = id => document.getElementById(id);
   const video = $('cam'), canvas = $('game'), ctx = canvas.getContext('2d');
-  const flashEl = $('flash'), bannerEl = $('banner'), comboEl = $('combo');
+  const flashEl = $('flash'), bannerEl = $('banner'), hintEl = $('hint');
+  const fa = n => Math.round(n).toLocaleString('fa-IR');
   let W = 0, H = 0, DPR = 1, focal = 1;
-  const FOV_V = 62 * Math.PI / 180; // approximate vertical field of view of a phone camera
+  const FOV_V = 62 * Math.PI / 180;
 
   function resize() {
     DPR = Math.min(window.devicePixelRatio || 1, 2);
     W = window.innerWidth; H = window.innerHeight;
     canvas.width = W * DPR; canvas.height = H * DPR;
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    // keep vertical FOV in portrait, horizontal-ish in landscape
     const fov = W > H ? FOV_V * 0.75 : FOV_V;
     focal = (H / 2) / Math.tan(fov / 2);
   }
   window.addEventListener('resize', resize);
   resize();
 
-  // ---------- Quaternion helpers ----------
+  // ---------- Math ----------
   const qMul = (a, b) => [
     a[3]*b[0] + a[0]*b[3] + a[1]*b[2] - a[2]*b[1],
     a[3]*b[1] - a[0]*b[2] + a[1]*b[3] + a[2]*b[0],
@@ -136,80 +146,100 @@
   function qFromEulerYXZ(x, y, z) {
     const c1 = Math.cos(x/2), c2 = Math.cos(y/2), c3 = Math.cos(z/2);
     const s1 = Math.sin(x/2), s2 = Math.sin(y/2), s3 = Math.sin(z/2);
-    return [
-      s1*c2*c3 + c1*s2*s3,
-      c1*s2*c3 - s1*c2*s3,
-      c1*c2*s3 - s1*s2*c3,
-      c1*c2*c3 + s1*s2*s3
-    ];
+    return [s1*c2*c3 + c1*s2*s3, c1*s2*c3 - s1*c2*s3, c1*c2*s3 - s1*s2*c3, c1*c2*c3 + s1*s2*s3];
   }
   const qAxis = (ax, ay, az, ang) => { const s = Math.sin(ang/2); return [ax*s, ay*s, az*s, Math.cos(ang/2)]; };
-  function qRot(q, v) {
-    const p = qMul(qMul(q, [v[0], v[1], v[2], 0]), qConj(q));
-    return [p[0], p[1], p[2]];
-  }
+  function qRot(q, v) { const p = qMul(qMul(q, [v[0], v[1], v[2], 0]), qConj(q)); return [p[0], p[1], p[2]]; }
+  const sub = (a, b) => [a[0]-b[0], a[1]-b[1], a[2]-b[2]];
+  const len = v => Math.hypot(v[0], v[1], v[2]);
+  const rand = (a, b) => a + Math.random() * (b - a);
 
-  // ---------- Camera orientation ----------
-  // World: Y up, player at origin. Camera looks along its local -Z.
+  // ---------- Player pose ----------
+  // World: Y up, metres. The camera looks along its local -Z.
+  // camPos.y is the camera height above the floor.
   let camQ = [0, 0, 0, 1];
-  let hasSensor = false;
-  let lookYaw = 0, lookPitch = 0; // fallback (desktop) controls
-  const Q_TILT = [-Math.SQRT1_2, 0, 0, Math.SQRT1_2]; // -90° around X: camera looks out the back of the device
-  let lastOrient = null;
+  let camPos = [0, 1.4, 0];
+  let projM = null;          // WebXR projection matrix when in AR mode
+  let mode = 'sensor';       // 'xr' (real walking tracking) | 'sensor' (orientation + step counting)
+  let hasSensor = false, lastOrient = null;
+  let lookYaw = 0, lookPitch = 0;
+  const Q_TILT = [-Math.SQRT1_2, 0, 0, Math.SQRT1_2];
 
   function screenAngle() {
     const o = (screen.orientation && screen.orientation.angle) ?? window.orientation ?? 0;
     return (o || 0) * Math.PI / 180;
   }
-  function onOrient(e) {
-    if (e.alpha == null && e.beta == null) return;
-    hasSensor = true;
-    lastOrient = e;
-  }
-  function updateCamQ() {
+  function onOrient(e) { if (e.alpha == null && e.beta == null) return; hasSensor = true; lastOrient = e; }
+  function updateSensorPose() {
     if (hasSensor && lastOrient) {
       const d = Math.PI / 180;
-      const a = (lastOrient.alpha || 0) * d, b = (lastOrient.beta || 0) * d, g = (lastOrient.gamma || 0) * d;
-      let q = qFromEulerYXZ(b, a, -g);
+      let q = qFromEulerYXZ((lastOrient.beta || 0) * d, (lastOrient.alpha || 0) * d, -(lastOrient.gamma || 0) * d);
       q = qMul(q, Q_TILT);
-      q = qMul(q, qAxis(0, 0, 1, -screenAngle()));
-      camQ = q;
+      camQ = qMul(q, qAxis(0, 0, 1, -screenAngle()));
     } else {
       camQ = qFromEulerYXZ(lookPitch, lookYaw, 0);
     }
   }
+  function forwardFlat() {
+    const f = qRot(camQ, [0, 0, -1]);
+    let fx = f[0], fz = f[2];
+    // looking straight down/up: use the phone's top edge as "forward"
+    if (Math.hypot(fx, fz) < 0.2) { const u = qRot(camQ, [0, 1, 0]); fx = u[0] * Math.sign(-f[1] || 1); fz = u[2] * Math.sign(-f[1] || 1); }
+    const l = Math.hypot(fx, fz) || 1;
+    return [fx / l, fz / l];
+  }
+
+  // Step counting (used when real walking tracking is not available, e.g. iPhone)
+  let accLP = 9.8, lastStep = 0, stepArmed = true, steps = 0;
+  const STEP_LEN = 0.65;
+  function onMotion(e) {
+    const a = e.accelerationIncludingGravity; if (!a || a.x == null) return;
+    const m = Math.hypot(a.x, a.y, a.z);
+    accLP = accLP * 0.8 + m * 0.2;
+    const now = performance.now();
+    if (stepArmed && accLP > 11.2 && now - lastStep > 320) { stepArmed = false; lastStep = now; takeStep(); }
+    if (accLP < 10.2) stepArmed = true;
+  }
+  function takeStep() {
+    if (mode !== 'sensor' || state !== 'play') return;
+    const [fx, fz] = forwardFlat();
+    camPos[0] += fx * STEP_LEN; camPos[2] += fz * STEP_LEN;
+    steps++;
+  }
   async function enableSensors() {
     try {
       if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-        const r = await DeviceOrientationEvent.requestPermission();
-        if (r !== 'granted') return;
+        await DeviceOrientationEvent.requestPermission();
       }
-    } catch (_) { /* ignore */ }
+      if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+        await DeviceMotionEvent.requestPermission();
+      }
+    } catch (_) {}
     window.addEventListener('deviceorientation', onOrient, true);
+    window.addEventListener('devicemotion', onMotion, true);
   }
 
-  // Desktop fallback: drag to look, arrow keys
+  // Desktop fallback: drag to look, WASD / arrows to walk
   let dragging = false, dragX = 0, dragY = 0, dragMoved = 0;
   canvas.addEventListener('pointerdown', e => { dragging = true; dragX = e.clientX; dragY = e.clientY; dragMoved = 0; });
   window.addEventListener('pointermove', e => {
-    if (!dragging || hasSensor) return;
+    if (!dragging || hasSensor || mode === 'xr') return;
     const dx = e.clientX - dragX, dy = e.clientY - dragY;
     dragMoved += Math.abs(dx) + Math.abs(dy);
-    lookYaw += dx * 0.005; lookPitch += dy * 0.005;
-    lookPitch = Math.max(-1.45, Math.min(1.45, lookPitch));
+    lookYaw += dx * 0.005; lookPitch = Math.max(-1.45, Math.min(1.45, lookPitch + dy * 0.005));
     dragX = e.clientX; dragY = e.clientY;
   });
   window.addEventListener('pointerup', () => { dragging = false; });
   const keys = {};
-  window.addEventListener('keydown', e => { keys[e.key] = true; });
-  window.addEventListener('keyup', e => { keys[e.key] = false; });
+  window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; });
+  window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 
-  // ---------- Camera feed ----------
+  // ---------- Camera feed (sensor mode) ----------
   async function startCamera() {
+    if (video.srcObject) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false
       });
       video.srcObject = stream;
       await video.play().catch(() => {});
@@ -217,6 +247,52 @@
       video.classList.add('hidden');
       $('fallbackBg').style.display = 'block';
     }
+  }
+
+  // ---------- WebXR (Android Chrome with ARCore: real walking tracking) ----------
+  let xrSession = null, xrRef = null, xrGL = null, xrFloor = false;
+  async function xrSupported() {
+    try { return !!(navigator.xr && await navigator.xr.isSessionSupported('immersive-ar')); } catch (_) { return false; }
+  }
+  async function startXR() {
+    const session = await navigator.xr.requestSession('immersive-ar', {
+      optionalFeatures: ['dom-overlay', 'local-floor'],
+      domOverlay: { root: $('overlay') }
+    });
+    const glCanvas = document.createElement('canvas');
+    xrGL = glCanvas.getContext('webgl', { xrCompatible: true, alpha: true });
+    await session.updateRenderState({ baseLayer: new XRWebGLLayer(session, xrGL) });
+    try { xrRef = await session.requestReferenceSpace('local-floor'); xrFloor = true; }
+    catch (_) { xrRef = await session.requestReferenceSpace('local'); xrFloor = false; }
+    xrSession = session;
+    mode = 'xr';
+    document.body.classList.add('xr');
+    video.classList.add('hidden');
+    session.addEventListener('end', () => {
+      xrSession = null; mode = 'sensor'; projM = null;
+      document.body.classList.remove('xr'); video.classList.remove('hidden');
+      if (state === 'play') gameOver(true);
+      requestAnimationFrame(loop);
+    });
+    session.requestAnimationFrame(onXRFrame);
+  }
+  let xrLastT = 0;
+  function onXRFrame(t, frame) {
+    const session = frame.session;
+    session.requestAnimationFrame(onXRFrame);
+    const layer = session.renderState.baseLayer;
+    xrGL.bindFramebuffer(xrGL.FRAMEBUFFER, layer.framebuffer);
+    xrGL.clearColor(0, 0, 0, 0); xrGL.clear(xrGL.COLOR_BUFFER_BIT);
+    const pose = frame.getViewerPose(xrRef);
+    if (pose) {
+      const p = pose.transform.position, o = pose.transform.orientation;
+      // without a floor reference, assume the phone started about 1.4 m above the floor
+      camPos = [p.x, xrFloor ? p.y : p.y + 1.4, p.z];
+      camQ = [o.x, o.y, o.z, o.w];
+      projM = pose.views[0].projectionMatrix;
+    }
+    const dt = Math.min(0.05, (t - xrLastT) / 1000 || 0); xrLastT = t;
+    step(dt);
   }
 
   // ---------- Audio ----------
@@ -227,15 +303,17 @@
       master = actx.createGain(); master.gain.value = 0.9; master.connect(actx.destination);
     } catch (_) { actx = null; }
   }
+  function setParam(param, v) { param.setTargetAtTime(v, actx.currentTime, 0.03); }
   function updateListener() {
     if (!actx) return;
     const L = actx.listener, f = qRot(camQ, [0, 0, -1]), u = qRot(camQ, [0, 1, 0]);
     if (L.forwardX) {
-      const t = actx.currentTime;
-      L.forwardX.setTargetAtTime(f[0], t, 0.02); L.forwardY.setTargetAtTime(f[1], t, 0.02); L.forwardZ.setTargetAtTime(f[2], t, 0.02);
-      L.upX.setTargetAtTime(u[0], t, 0.02); L.upY.setTargetAtTime(u[1], t, 0.02); L.upZ.setTargetAtTime(u[2], t, 0.02);
-    } else if (L.setOrientation) {
-      L.setOrientation(f[0], f[1], f[2], u[0], u[1], u[2]);
+      setParam(L.forwardX, f[0]); setParam(L.forwardY, f[1]); setParam(L.forwardZ, f[2]);
+      setParam(L.upX, u[0]); setParam(L.upY, u[1]); setParam(L.upZ, u[2]);
+      setParam(L.positionX, camPos[0]); setParam(L.positionY, camPos[1]); setParam(L.positionZ, camPos[2]);
+    } else {
+      L.setOrientation && L.setOrientation(f[0], f[1], f[2], u[0], u[1], u[2]);
+      L.setPosition && L.setPosition(camPos[0], camPos[1], camPos[2]);
     }
   }
   function makeBuzz(pitch, vol) {
@@ -250,125 +328,126 @@
     const gain = actx.createGain(); gain.gain.value = 0;
     gain.gain.setTargetAtTime(vol, actx.currentTime, 0.1);
     const pan = actx.createPanner();
-    pan.panningModel = 'HRTF'; pan.distanceModel = 'inverse'; pan.refDistance = 0.6; pan.rolloffFactor = 1.4; pan.maxDistance = 30;
+    pan.panningModel = 'HRTF'; pan.distanceModel = 'inverse'; pan.refDistance = 0.6; pan.rolloffFactor = 1.2; pan.maxDistance = 40;
     osc.connect(bp); osc2.connect(g2); g2.connect(bp); bp.connect(gain); gain.connect(pan); pan.connect(master);
     osc.start(); osc2.start(); lfo.start();
-    return { osc, osc2, lfo, gain, pan };
+    return { osc, osc2, lfo, gain, pan, vol };
   }
-  function moveBuzz(b, p) {
+  function moveBuzz(b, p, loud) {
     if (!b) return;
-    if (b.pan.positionX) {
-      const t = actx.currentTime;
-      b.pan.positionX.setTargetAtTime(p[0], t, 0.03); b.pan.positionY.setTargetAtTime(p[1], t, 0.03); b.pan.positionZ.setTargetAtTime(p[2], t, 0.03);
-    } else b.pan.setPosition(p[0], p[1], p[2]);
+    if (b.pan.positionX) { setParam(b.pan.positionX, p[0]); setParam(b.pan.positionY, p[1]); setParam(b.pan.positionZ, p[2]); }
+    else b.pan.setPosition(p[0], p[1], p[2]);
+    setParam(b.gain.gain, b.vol * loud);
   }
   function stopBuzz(b) {
     if (!b) return;
-    const t = actx.currentTime;
-    b.gain.gain.setTargetAtTime(0, t, 0.04);
+    b.gain.gain.setTargetAtTime(0, actx.currentTime, 0.04);
     setTimeout(() => { try { b.osc.stop(); b.osc2.stop(); b.lfo.stop(); b.pan.disconnect(); } catch (_) {} }, 300);
   }
   function sfx(type) {
     if (!actx) return;
-    const t = actx.currentTime;
-    const o = actx.createOscillator(), g = actx.createGain();
+    const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
     o.connect(g); g.connect(master);
-    if (type === 'splat') {
-      o.type = 'triangle'; o.frequency.setValueAtTime(320, t); o.frequency.exponentialRampToValueAtTime(60, t + 0.12);
-      g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
-      o.start(t); o.stop(t + 0.16);
-    } else if (type === 'hit') {
-      o.type = 'square'; o.frequency.setValueAtTime(700, t); o.frequency.exponentialRampToValueAtTime(300, t + 0.06);
-      g.gain.setValueAtTime(0.2, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
-      o.start(t); o.stop(t + 0.09);
-    } else if (type === 'bite') {
-      o.type = 'sawtooth'; o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(70, t + 0.3);
-      g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
-      o.start(t); o.stop(t + 0.36);
-    } else if (type === 'wave') {
-      o.type = 'sine'; o.frequency.setValueAtTime(440, t); o.frequency.setValueAtTime(660, t + 0.12);
-      g.gain.setValueAtTime(0.25, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
-      o.start(t); o.stop(t + 0.36);
-    }
+    const env = (f0, f1, dur, vol, wave) => {
+      o.type = wave; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur * 0.8);
+      g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur); o.start(t); o.stop(t + dur + 0.01);
+    };
+    if (type === 'splat') env(320, 60, 0.15, 0.5, 'triangle');
+    else if (type === 'hit') env(700, 300, 0.08, 0.2, 'square');
+    else if (type === 'bite') env(140, 70, 0.35, 0.5, 'sawtooth');
+    else if (type === 'alert') env(500, 900, 0.18, 0.15, 'sine');
+    else if (type === 'level') env(440, 880, 0.4, 0.25, 'sine');
   }
 
   // ---------- Mosquito types ----------
+  // rest: hovering at its hiding spot. attack: flies at the player once the player comes within `aggro` metres.
   const TYPES = {
-    normal:   { hp: 1, speed: 0.55, size: 0.09, dmg: 12, pitch: 560, vol: 0.5, color: '#2a2622', score: 10, wiggle: 0.35 },
-    fast:     { hp: 1, speed: 1.05, size: 0.075, dmg: 10, pitch: 720, vol: 0.45, color: '#3b3020', score: 20, wiggle: 1.1, zigzag: true },
-    fat:      { hp: 3, speed: 0.35, size: 0.13, dmg: 25, pitch: 380, vol: 0.6, color: '#3a1d1d', score: 40, wiggle: 0.25, blood: true },
-    splitter: { hp: 1, speed: 0.5,  size: 0.1, dmg: 12, pitch: 500, vol: 0.5, color: '#1f2b22', score: 25, wiggle: 0.4, split: true },
-    ghost:    { hp: 1, speed: 0.6,  size: 0.09, dmg: 15, pitch: 620, vol: 0.65, color: '#202530', score: 35, wiggle: 0.5, ghost: true },
-    mini:     { hp: 1, speed: 0.95, size: 0.06, dmg: 6,  pitch: 840, vol: 0.35, color: '#2a2622', score: 10, wiggle: 0.9, zigzag: true }
+    normal:   { hp: 1, attack: 0.45, size: 0.09, dmg: 8,  aggro: 1.6, pitch: 560, vol: 0.5,  color: '#2a2622', score: 10, wiggle: 0.3 },
+    fast:     { hp: 1, attack: 0.8,  size: 0.075, dmg: 7, aggro: 2.0, pitch: 720, vol: 0.45, color: '#3b3020', score: 20, wiggle: 0.9, zigzag: true },
+    fat:      { hp: 3, attack: 0.3,  size: 0.13, dmg: 15, aggro: 1.4, pitch: 380, vol: 0.6,  color: '#3a1d1d', score: 40, wiggle: 0.2, blood: true },
+    splitter: { hp: 1, attack: 0.45, size: 0.1,  dmg: 8,  aggro: 1.6, pitch: 500, vol: 0.5,  color: '#1f2b22', score: 25, wiggle: 0.35, split: true },
+    ghost:    { hp: 1, attack: 0.5,  size: 0.09, dmg: 10, aggro: 1.5, pitch: 620, vol: 0.7,  color: '#202530', score: 35, wiggle: 0.4, ghost: true },
+    mini:     { hp: 1, attack: 0.7,  size: 0.06, dmg: 4,  aggro: 3.0, pitch: 840, vol: 0.35, color: '#2a2622', score: 10, wiggle: 0.8, zigzag: true }
   };
 
   // ---------- Game state ----------
   let state = 'menu';
+  let areaR = 6;                         // radius of the play area in metres (chosen on the start screen)
+  let origin = [0, 0, 0];                // player position when the level started
   let mosquitoes = [], particles = [], popups = [];
-  let score = 0, health = 100, wave = 0, toSpawn = 0, spawnTimer = 0, waveBreak = 0;
+  let score = 0, health = 100, level = 0, levelTime = 0, levelBreak = 0;
   let combo = 0, comboTimer = 0, biteTimes = [], itchUntil = 0;
   let lastT = 0, time = 0, nextId = 1;
-  const MAX_BUZZ = 10;
+  const MAX_BUZZ = 8;
 
-  function pickType(w) {
-    const r = Math.random();
+  // Difficulty grows slowly: a couple more mosquitoes per level, new types unlock one at a time.
+  function levelPlan(n) {
+    const count = 4 + Math.floor(n * 1.5);
     const pool = [['normal', 1]];
-    if (w >= 2) pool.push(['fast', 0.5 + w * 0.05]);
-    if (w >= 3) pool.push(['fat', 0.3 + w * 0.03]);
-    if (w >= 4) pool.push(['splitter', 0.35]);
-    if (w >= 5) pool.push(['ghost', 0.3 + (w - 5) * 0.05]);
+    if (n >= 3) pool.push(['fast', 0.25 + 0.03 * n]);
+    if (n >= 4) pool.push(['fat', 0.25]);
+    if (n >= 5) pool.push(['splitter', 0.25]);
+    if (n >= 7) pool.push(['ghost', 0.2]);
+    return { count, pool, speedMul: 1 + Math.min(n - 1, 10) * 0.04, aggroMul: 1 + Math.min(n - 1, 10) * 0.03 };
+  }
+  function pick(pool) {
     const total = pool.reduce((s, p) => s + p[1], 0);
-    let acc = 0;
-    for (const [k, wgt] of pool) { acc += wgt / total; if (r <= acc) return k; }
-    return 'normal';
+    let r = Math.random() * total;
+    for (const [k, w] of pool) { r -= w; if (r <= 0) return k; }
+    return pool[0][0];
   }
 
-  function spawn(typeKey, pos) {
+  // Hiding spot: spread around the play area, from floor level up to the ceiling.
+  function hidingSpot(minD, maxD) {
+    const a = Math.random() * Math.PI * 2, d = rand(minD, maxD);
+    const y = Math.random() < 0.25 ? rand(0.15, 0.5) : (Math.random() < 0.3 ? rand(1.9, 2.4) : rand(0.6, 1.8));
+    return [origin[0] + Math.cos(a) * d, y, origin[2] + Math.sin(a) * d];
+  }
+
+  function spawn(typeKey, pos, plan) {
     const T = TYPES[typeKey];
-    let p = pos;
-    if (!p) {
-      // random direction, biased toward horizon; early waves biased toward where you look
-      let dir;
-      const fwd = qRot(camQ, [0, 0, -1]);
-      if (wave <= 1 && Math.random() < 0.6) {
-        dir = [fwd[0] + (Math.random() - .5) * 1.2, fwd[1] + (Math.random() - .5) * 0.8, fwd[2] + (Math.random() - .5) * 1.2];
-      } else {
-        const yaw = Math.random() * Math.PI * 2;
-        const pitch = (Math.random() * 1.6 - 0.55); // ~ -30° .. +60°
-        dir = [Math.cos(pitch) * Math.sin(yaw), Math.sin(pitch), -Math.cos(pitch) * Math.cos(yaw)];
-      }
-      const len = Math.hypot(dir[0], dir[1], dir[2]) || 1;
-      const dist = 4.5 + Math.random() * 2.5;
-      p = [dir[0] / len * dist, dir[1] / len * dist, dir[2] / len * dist];
-    }
     const m = {
-      id: nextId++, type: typeKey, T, hp: T.hp, pos: p.slice(),
-      phase: Math.random() * 100, speedMul: 0.85 + Math.random() * 0.3 + Math.min(wave, 12) * 0.03,
-      hitFlash: 0, retreat: 0, buzz: null, screen: null
+      id: nextId++, type: typeKey, T, hp: T.hp, pos: pos.slice(), home: pos.slice(),
+      phase: Math.random() * 100, mode: 'rest', cool: 0,
+      speedMul: (plan ? plan.speedMul : 1) * rand(0.9, 1.1), aggro: T.aggro * (plan ? plan.aggroMul : 1),
+      hitFlash: 0, buzz: null, screen: null
     };
     mosquitoes.push(m);
+    return m;
   }
 
-  function startWave() {
-    wave++;
-    toSpawn = 4 + wave * 3;
-    spawnTimer = 0.5;
-    $('wave').textContent = wave.toLocaleString('fa-IR');
-    showBanner('موج ' + wave.toLocaleString('fa-IR'));
-    sfx('wave');
+  function startLevel() {
+    level++;
+    levelTime = 0;
+    origin = [camPos[0], 0, camPos[2]];
+    const plan = levelPlan(level);
+    for (let i = 0; i < plan.count; i++) {
+      // the first couple are close so there is action right away; the rest need walking to find
+      const frac = i / plan.count;
+      const minD = i < 2 ? 1.5 : Math.max(1.5, areaR * 0.3);
+      const maxD = i < 2 ? Math.min(2.5, areaR) : areaR * (0.6 + 0.4 * frac);
+      spawn(pick(plan.pool), hidingSpot(minD, Math.max(minD + 0.5, maxD)), plan);
+    }
+    $('level').textContent = fa(level);
+    updateLeft();
+    showBanner('مرحله‌ی ' + fa(level), fa(plan.count) + ' تا پشه این اطراف قایم شدن', 2200);
+    sfx('level');
   }
 
-  function showBanner(text, ms = 1600) {
-    bannerEl.textContent = text; bannerEl.style.opacity = 1;
+  function updateLeft() { $('left').textContent = fa(mosquitoes.length); }
+
+  function showBanner(text, sub = '', ms = 1600) {
+    bannerEl.innerHTML = text + (sub ? '<small>' + sub + '</small>' : '');
+    bannerEl.style.opacity = 1;
     clearTimeout(showBanner._t); showBanner._t = setTimeout(() => bannerEl.style.opacity = 0, ms);
   }
 
   function resetGame() {
     mosquitoes.forEach(m => stopBuzz(m.buzz));
     mosquitoes = []; particles = []; popups = [];
-    score = 0; health = 100; wave = 0; combo = 0; biteTimes = []; itchUntil = 0;
-    $('score').textContent = '0'; $('health').style.width = '100%';
-    startWave();
+    score = 0; health = 100; level = 0; combo = 0; biteTimes = []; itchUntil = 0; steps = 0; levelBreak = 0;
+    $('score').textContent = fa(0); $('health').style.width = '100%';
+    startLevel();
   }
 
   function bite(m) {
@@ -379,25 +458,23 @@
     try { navigator.vibrate && navigator.vibrate([120, 40, 80]); } catch (_) {}
     sfx('bite');
     combo = 0;
-    const now = time;
-    biteTimes = biteTimes.filter(t => now - t < 6); biteTimes.push(now);
-    if (biteTimes.length >= 3) { itchUntil = now + 3.5; biteTimes = []; showBanner('خارش!', 1200); }
-    if (health <= 0) gameOver();
+    biteTimes = biteTimes.filter(t => time - t < 6); biteTimes.push(time);
+    if (biteTimes.length >= 3) { itchUntil = time + 3; biteTimes = []; showBanner('خارش!', '', 1200); }
+    // after biting, it flies off to a new hiding spot a few metres away and rests for a while
+    const a = Math.random() * Math.PI * 2, d = rand(2, Math.max(2.5, areaR * 0.6));
+    m.home = [camPos[0] + Math.cos(a) * d, rand(0.4, 2.2), camPos[2] + Math.sin(a) * d];
+    m.mode = 'flee'; m.cool = 6;
+    if (health <= 0) gameOver(false);
   }
 
   function kill(m, sx, sy) {
-    stopBuzz(m.buzz); m.buzz = null;
-    m.dead = true;
-    combo++; comboTimer = 2;
-    const mult = 1 + Math.floor(combo / 5) * 0.5;
+    stopBuzz(m.buzz); m.buzz = null; m.dead = true;
+    combo++; comboTimer = 4;
+    const mult = 1 + Math.floor(combo / 3) * 0.5;
     const pts = Math.round(m.T.score * mult);
     score += pts;
-    $('score').textContent = score.toLocaleString('fa-IR');
-    popups.push({ x: sx, y: sy, text: '+' + pts.toLocaleString('fa-IR'), life: 0.8 });
-    if (combo >= 5 && combo % 5 === 0) {
-      comboEl.textContent = 'زنجیره ×' + combo.toLocaleString('fa-IR');
-      comboEl.style.opacity = 1; clearTimeout(kill._t); kill._t = setTimeout(() => comboEl.style.opacity = 0, 1000);
-    }
+    $('score').textContent = fa(score);
+    popups.push({ x: sx, y: sy, text: '+' + fa(pts), life: 0.9 });
     const n = 10 + (m.T.blood ? 10 : 0);
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2, s = 60 + Math.random() * 180;
@@ -407,122 +484,148 @@
     sfx('splat');
     if (m.T.split) {
       for (let i = 0; i < 2; i++) {
-        const off = [(Math.random() - .5) * 0.8, (Math.random() - .5) * 0.5, (Math.random() - .5) * 0.8];
-        const p = m.pos.map((v, k) => v * 1.25 + off[k]);
-        spawn('mini', p);
+        const c = spawn('mini', hidingSpot(1.5, Math.max(2, areaR * 0.5)));
+        c.pos = m.pos.map(v => v + rand(-0.2, 0.2));
+        c.mode = 'flee'; c.cool = 3;
       }
     }
     try { navigator.vibrate && navigator.vibrate(15); } catch (_) {}
   }
 
-  function gameOver() {
+  function gameOver(quit) {
+    if (state !== 'play') return;
     state = 'over';
-    mosquitoes.forEach(m => stopBuzz(m.buzz));
+    mosquitoes.forEach(m => { stopBuzz(m.buzz); m.buzz = null; });
     let best = 0;
-    try { best = +localStorage.getItem('vizviz_best') || 0; if (score > best) { localStorage.setItem('vizviz_best', score); } } catch (_) {}
-    const record = score > best;
-    $('overText').innerHTML = 'تا موج ' + wave.toLocaleString('fa-IR') + ' دووم آوردی.<br>امتیاز: <b>' + score.toLocaleString('fa-IR') + '</b>' +
-      (record ? '<br>رکورد جدید!' : (best ? '<br>بهترین امتیاز: ' + best.toLocaleString('fa-IR') : ''));
+    try { best = +localStorage.getItem('vizviz_best') || 0; if (score > best) localStorage.setItem('vizviz_best', score); } catch (_) {}
+    $('overTitle').textContent = quit ? 'بازی تموم شد' : 'نیش خوردی!';
+    $('overText').innerHTML = 'به مرحله‌ی ' + fa(level) + ' رسیدی.<br>امتیاز: <b>' + fa(score) + '</b>' +
+      (score > best ? '<br>رکورد جدید!' : (best ? '<br>بهترین امتیاز: ' + fa(best) : ''));
     $('overScreen').classList.remove('hidden');
     $('hud').classList.add('hidden');
+    hintEl.textContent = '';
+    if (xrSession) xrSession.end().catch(() => {});
   }
 
   // ---------- Input: tap to swat ----------
   canvas.addEventListener('pointerup', e => {
     if (state !== 'play') return;
-    if (!hasSensor && dragMoved > 12) return; // was a look-drag on desktop
+    if (mode !== 'xr' && !hasSensor && dragMoved > 12) return;
     swat(e.clientX, e.clientY);
   });
+  // keep taps on the overlay from also firing an XR "select"
+  $('overlay').addEventListener('beforexrselect', e => e.preventDefault());
 
   function swat(x, y) {
     let best = null, bestD = Infinity;
     for (const m of mosquitoes) {
       if (m.dead || !m.screen) continue;
-      const s = m.screen;
-      const radius = Math.max(34, s.r * 1.8);
-      const d = Math.hypot(s.x - x, s.y - y);
+      const s = m.screen, radius = Math.max(36, s.r * 1.8), d = Math.hypot(s.x - x, s.y - y);
       if (d < radius && s.depth < bestD) { best = m; bestD = s.depth; }
     }
-    // little swat ring feedback
     particles.push({ ring: true, x, y, life: 0.25, r: 10 });
     if (!best) return;
     best.hp--;
     if (best.hp <= 0) kill(best, best.screen.x, best.screen.y);
     else {
       best.hitFlash = 0.15; sfx('hit');
-      // knock back
-      best.pos = best.pos.map(v => v * 1.35);
+      const away = sub(best.pos, camPos), l = len(away) || 1;
+      for (let k = 0; k < 3; k++) best.pos[k] += away[k] / l * 0.6;
     }
   }
 
   // ---------- Update ----------
   function update(dt) {
     time += dt;
-    if (!hasSensor) {
-      if (keys.ArrowLeft) lookYaw += dt * 1.8;
-      if (keys.ArrowRight) lookYaw -= dt * 1.8;
-      if (keys.ArrowUp) lookPitch = Math.min(1.45, lookPitch + dt * 1.5);
-      if (keys.ArrowDown) lookPitch = Math.max(-1.45, lookPitch - dt * 1.5);
+    if (mode === 'sensor') {
+      if (!hasSensor) {
+        if (keys.arrowleft) lookYaw += dt * 1.8;
+        if (keys.arrowright) lookYaw -= dt * 1.8;
+      }
+      updateSensorPose();
+      if (state === 'play') {
+        const [fx, fz] = forwardFlat(), sp = 1.4 * dt;
+        if (keys.w || keys.arrowup) { camPos[0] += fx * sp; camPos[2] += fz * sp; }
+        if (keys.s || keys.arrowdown) { camPos[0] -= fx * sp; camPos[2] -= fz * sp; }
+        if (keys.a) { camPos[0] += fz * sp; camPos[2] -= fx * sp; }
+        if (keys.d) { camPos[0] -= fz * sp; camPos[2] += fx * sp; }
+      }
     }
-    updateCamQ();
     updateListener();
     if (state !== 'play') return;
+    levelTime += dt;
 
     if (comboTimer > 0) { comboTimer -= dt; if (comboTimer <= 0) combo = 0; }
-    video.style.filter = time < itchUntil ? 'blur(5px) saturate(1.4)' : '';
-    $('fallbackBg').style.filter = video.style.filter;
+    const blur = time < itchUntil ? 'blur(5px) saturate(1.4)' : '';
+    video.style.filter = blur; $('fallbackBg').style.filter = blur;
 
-    // spawning
-    if (toSpawn > 0) {
-      spawnTimer -= dt;
-      if (spawnTimer <= 0) {
-        spawn(pickType(wave)); toSpawn--;
-        spawnTimer = Math.max(0.35, 1.6 - wave * 0.1) * (0.6 + Math.random() * 0.8);
+    if (mosquitoes.length === 0) {
+      if (levelBreak <= 0) {
+        levelBreak = 3;
+        const bonus = Math.max(0, Math.round(200 - levelTime * 2));
+        score += bonus; $('score').textContent = fa(score);
+        health = Math.min(100, health + 30); $('health').style.width = health + '%';
+        showBanner('همه رو کشتی!', bonus ? 'جایزه‌ی سرعت: ' + fa(bonus) : '', 2500);
       }
-    } else if (mosquitoes.length === 0) {
-      if (waveBreak <= 0) { waveBreak = 2.5; showBanner('آفرین!', 1200); }
-      waveBreak -= dt;
-      if (waveBreak <= 0) { waveBreak = 0; startWave(); }
+      levelBreak -= dt;
+      if (levelBreak <= 0.0001) { levelBreak = 0; startLevel(); }
     }
 
-    // move mosquitoes toward player (origin)
+    let attackers = 0;
     for (const m of mosquitoes) {
       if (m.dead) continue;
       m.phase += dt;
-      const p = m.pos, d = Math.hypot(p[0], p[1], p[2]);
-      const toward = [-p[0] / d, -p[1] / d, -p[2] / d];
-      // perpendicular wiggle so they don't fly in a straight line
-      let side = [toward[2], 0, -toward[0]];
-      const sl = Math.hypot(side[0], side[2]) || 1; side = [side[0] / sl, 0, side[2] / sl];
-      const w = m.T.wiggle;
-      const zig = m.T.zigzag ? Math.sign(Math.sin(m.phase * 2.2)) : Math.sin(m.phase * 1.7);
-      const up = Math.sin(m.phase * 2.9 + m.id) * w * 0.6;
-      let sp = m.T.speed * m.speedMul;
-      if (m.retreat > 0) { m.retreat -= dt; sp = -sp * 0.8; }
-      // slow down and hover a bit when close, then dive
-      const hover = d < 1.6 && d > 1.0 ? 0.55 : 1;
-      for (let k = 0; k < 3; k++) p[k] += (toward[k] * sp * hover + side[k] * zig * w + (k === 1 ? up : 0)) * dt;
       if (m.hitFlash > 0) m.hitFlash -= dt;
+      if (m.cool > 0) m.cool -= dt;
+      const toP = sub(camPos, m.pos), dP = len(toP);
+      const w = m.T.wiggle;
 
-      const nd = Math.hypot(p[0], p[1], p[2]);
-      if (nd < 0.3) {
-        bite(m);
-        if (state !== 'play') return;
-        // after biting, the mosquito flies away and comes back later
-        const s = 3.5 / nd; for (let k = 0; k < 3; k++) p[k] *= s;
-        m.retreat = 0;
+      if (m.mode === 'rest' && dP < m.aggro && m.cool <= 0) { m.mode = 'attack'; sfx('alert'); }
+      if (m.mode === 'attack' && dP > m.aggro * 2.5) { m.mode = 'rest'; m.cool = 2; }
+      if (m.mode === 'flee' && m.cool <= 0) m.mode = 'rest';
+
+      if (m.mode === 'attack') {
+        attackers++;
+        const sp = m.T.attack * m.speedMul;
+        let side = [toP[2], 0, -toP[0]]; const sl = Math.hypot(side[0], side[2]) || 1;
+        const zig = m.T.zigzag ? Math.sign(Math.sin(m.phase * 2.2)) : Math.sin(m.phase * 1.7);
+        for (let k = 0; k < 3; k++) m.pos[k] += (toP[k] / dP * sp + side[k] / sl * zig * w * 0.6) * dt;
+        m.pos[1] += Math.sin(m.phase * 2.9 + m.id) * w * 0.4 * dt;
+        if (len(sub(camPos, m.pos)) < 0.28) { bite(m); if (state !== 'play') return; }
+      } else {
+        // rest / flee: drift back to the hiding spot and hover around it
+        const target = [
+          m.home[0] + Math.sin(m.phase * 0.7 + m.id) * 0.25,
+          m.home[1] + Math.sin(m.phase * 1.3 + m.id * 2) * 0.12,
+          m.home[2] + Math.cos(m.phase * 0.9 + m.id) * 0.25
+        ];
+        const toH = sub(target, m.pos), dH = len(toH) || 1;
+        const sp = m.mode === 'flee' ? 1.2 : Math.min(0.5, dH * 1.5);
+        for (let k = 0; k < 3; k++) m.pos[k] += toH[k] / dH * sp * dt;
       }
     }
     mosquitoes = mosquitoes.filter(m => !m.dead);
+    updateLeft();
 
-    // manage audio voices: only the closest few buzz
+    // audio: the closest few buzz; resting ones are quieter so attackers stand out
     if (actx) {
-      const sorted = mosquitoes.slice().sort((a, b) => Math.hypot(...a.pos) - Math.hypot(...b.pos));
+      const sorted = mosquitoes.slice().sort((a, b) => len(sub(a.pos, camPos)) - len(sub(b.pos, camPos)));
       sorted.forEach((m, i) => {
-        if (i < MAX_BUZZ) { if (!m.buzz) m.buzz = makeBuzz(m.T.pitch * (0.95 + Math.random() * 0.1), m.T.vol); moveBuzz(m.buzz, m.pos); }
-        else if (m.buzz) { stopBuzz(m.buzz); m.buzz = null; }
+        if (i < MAX_BUZZ) {
+          if (!m.buzz) m.buzz = makeBuzz(m.T.pitch * rand(0.95, 1.05), m.T.vol);
+          moveBuzz(m.buzz, m.pos, m.mode === 'attack' ? 1 : 0.55);
+        } else if (m.buzz) { stopBuzz(m.buzz); m.buzz = null; }
       });
     }
+
+    // hint text
+    if (mosquitoes.length) {
+      const nearest = Math.min(...mosquitoes.map(m => len(sub(m.pos, camPos))));
+      if (attackers) hintEl.textContent = attackers > 1 ? fa(attackers) + ' تا پشه دارن حمله می‌کنن!' : 'یه پشه داره حمله می‌کنه!';
+      else if (nearest > 2.2) hintEl.textContent = 'نزدیک‌ترین پشه حدود ' + fa(Math.round(nearest)) + ' متر دوره. راه برو و دنبالش بگرد.' +
+        (mode === 'sensor' && hasSensor && steps === 0 && levelTime > 6 ? ' (گوشی رو جلوت نگه دار و راه برو، قدم‌هات شمرده می‌شه)' : '');
+      else hintEl.textContent = 'خیلی نزدیکی، دور و برت رو نگاه کن.';
+    } else hintEl.textContent = '';
 
     for (const pt of particles) {
       pt.life -= dt;
@@ -536,118 +639,137 @@
 
   // ---------- Render ----------
   function project(p) {
-    const v = qRot(qConj(camQ), p);
+    const v = qRot(qConj(camQ), sub(p, camPos));
     if (v[2] > -0.05) return { behind: true, v };
     const z = -v[2];
-    return { x: W / 2 + (v[0] / z) * focal, y: H / 2 - (v[1] / z) * focal, depth: z, v };
+    if (projM) {
+      const P = projM;
+      const cx = P[0]*v[0] + P[4]*v[1] + P[8]*v[2] + P[12];
+      const cy = P[1]*v[0] + P[5]*v[1] + P[9]*v[2] + P[13];
+      const cw = P[3]*v[0] + P[7]*v[1] + P[11]*v[2] + P[15];
+      return { x: (cx / cw + 1) / 2 * W, y: (1 - cy / cw) / 2 * H, depth: z, v, f: P[5] * H / 2 };
+    }
+    return { x: W / 2 + (v[0] / z) * focal, y: H / 2 - (v[1] / z) * focal, depth: z, v, f: focal };
   }
 
   function drawMosquito(m, x, y, r, dist) {
     const T = m.T;
     let alpha = 1;
-    if (T.ghost) alpha = dist < 1.4 ? 0.85 : 0.12 + 0.1 * Math.sin(time * 6 + m.id);
+    if (T.ghost) alpha = dist < 1.2 ? 0.85 : 0.12 + 0.1 * Math.sin(time * 6 + m.id);
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.translate(x, y);
-    // face roughly in flight direction (screen space wobble)
     ctx.rotate(Math.sin(m.phase * 1.7) * 0.4);
     const flap = Math.abs(Math.sin(time * 70 + m.id));
-    // wings
-    ctx.fillStyle = 'rgba(220,230,240,0.45)';
-    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillStyle = 'rgba(220,230,240,0.45)'; ctx.strokeStyle = 'rgba(255,255,255,0.35)';
     ctx.lineWidth = Math.max(0.5, r * 0.04);
     for (const s of [-1, 1]) {
       ctx.beginPath();
       ctx.ellipse(s * r * 0.55, -r * 0.25, r * 0.75, r * (0.18 + 0.2 * flap), s * (0.5 - flap * 0.4), 0, Math.PI * 2);
       ctx.fill(); ctx.stroke();
     }
-    // legs
     ctx.strokeStyle = T.color; ctx.lineWidth = Math.max(0.7, r * 0.05);
     for (const s of [-1, 1]) for (let i = 0; i < 3; i++) {
       ctx.beginPath();
-      ctx.moveTo(s * r * 0.1, r * (0.0 + i * 0.12));
+      ctx.moveTo(s * r * 0.1, r * (i * 0.12));
       ctx.quadraticCurveTo(s * r * 0.7, r * (0.1 + i * 0.25), s * r * (0.9 + i * 0.15), r * (0.7 + i * 0.25));
       ctx.stroke();
     }
-    // abdomen
-    ctx.fillStyle = m.hitFlash > 0 ? '#fff' : T.color;
+    const body = m.hitFlash > 0 ? '#fff' : T.color;
+    ctx.fillStyle = body;
     ctx.beginPath(); ctx.ellipse(0, r * 0.45, r * 0.16, r * 0.55, 0, 0, Math.PI * 2); ctx.fill();
     if (T.blood) { ctx.fillStyle = 'rgba(190,20,30,0.85)'; ctx.beginPath(); ctx.ellipse(0, r * 0.55, r * 0.13, r * 0.4, 0, 0, Math.PI * 2); ctx.fill(); }
-    // stripes
     ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = Math.max(0.5, r * 0.035);
     for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(-r * 0.13, r * (0.3 + i * 0.18)); ctx.lineTo(r * 0.13, r * (0.3 + i * 0.18)); ctx.stroke(); }
-    // thorax + head
-    ctx.fillStyle = m.hitFlash > 0 ? '#fff' : T.color;
+    ctx.fillStyle = body;
     ctx.beginPath(); ctx.ellipse(0, -r * 0.12, r * 0.2, r * 0.22, 0, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.arc(0, -r * 0.42, r * 0.12, 0, Math.PI * 2); ctx.fill();
-    // proboscis
     ctx.strokeStyle = T.color; ctx.lineWidth = Math.max(0.6, r * 0.035);
     ctx.beginPath(); ctx.moveTo(0, -r * 0.52); ctx.lineTo(0, -r * 1.0); ctx.stroke();
-    // eyes
-    ctx.fillStyle = T.split ? '#7dff9a' : '#c23';
+    ctx.fillStyle = m.mode === 'attack' ? '#ff2a2a' : (T.split ? '#7dff9a' : '#7a1a1a');
     ctx.beginPath(); ctx.arc(-r * 0.06, -r * 0.45, r * 0.045, 0, Math.PI * 2); ctx.arc(r * 0.06, -r * 0.45, r * 0.045, 0, Math.PI * 2); ctx.fill();
-    // health pips for fat ones
+    ctx.globalAlpha = 1;
     if (T.hp > 1) {
-      ctx.globalAlpha = 1;
       for (let i = 0; i < T.hp; i++) {
         ctx.fillStyle = i < m.hp ? '#ffcf3f' : 'rgba(255,255,255,.25)';
         ctx.beginPath(); ctx.arc((i - (T.hp - 1) / 2) * 9, -r * 1.25, 3, 0, Math.PI * 2); ctx.fill();
       }
     }
     ctx.restore();
+    // small marker so far-away ones are spottable
+    if (r < 10 && alpha > 0.5) {
+      ctx.strokeStyle = m.mode === 'attack' ? 'rgba(255,60,60,.8)' : 'rgba(255,207,63,.6)';
+      ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.stroke();
+    }
   }
 
-  function drawEdgeArrow(v, dist, ghost) {
-    // direction in screen plane from view-space vector
-    let dx = v[0], dy = -v[1];
-    if (v[2] > 0) { // behind: flip so arrow points the shorter way round
-      if (Math.abs(dx) < 1e-3 && Math.abs(dy) < 1e-3) dx = 1;
-    }
-    const ang = Math.atan2(dy, dx);
-    const margin = 26;
-    const cx = W / 2, cy = H / 2;
-    const tx = Math.cos(ang), ty = Math.sin(ang);
-    const sx = tx !== 0 ? (W / 2 - margin) / Math.abs(tx) : Infinity;
-    const sy = ty !== 0 ? (H / 2 - margin) / Math.abs(ty) : Infinity;
-    const s = Math.min(sx, sy);
-    const x = cx + tx * s, y = cy + ty * s;
-    const danger = Math.max(0, Math.min(1, (3.5 - dist) / 3));
-    const size = 9 + danger * 9;
+  function drawEdgeArrow(v, dist) {
+    const ang = Math.atan2(-v[1], v[0] || 1e-3);
+    const margin = 26, tx = Math.cos(ang), ty = Math.sin(ang);
+    const s = Math.min(tx ? (W / 2 - margin) / Math.abs(tx) : Infinity, ty ? (H / 2 - margin) / Math.abs(ty) : Infinity);
+    const danger = Math.max(0, Math.min(1, (2.5 - dist) / 2));
+    const size = 10 + danger * 9;
     ctx.save();
-    ctx.translate(x, y); ctx.rotate(ang);
-    ctx.globalAlpha = ghost ? 0.25 : 0.55 + danger * 0.45;
-    ctx.fillStyle = danger > 0.5 ? '#ff3b3b' : '#ffcf3f';
+    ctx.translate(W / 2 + tx * s, H / 2 + ty * s); ctx.rotate(ang);
+    ctx.globalAlpha = 0.6 + danger * 0.4; ctx.fillStyle = '#ff3b3b';
     ctx.beginPath(); ctx.moveTo(size, 0); ctx.lineTo(-size * 0.7, size * 0.7); ctx.lineTo(-size * 0.7, -size * 0.7); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawRadar() {
+    const R = 50, cx = 16 + R, cy = H - (16 + R) - 4;
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, R / 2, 0, Math.PI * 2); ctx.stroke();
+    // view cone
+    ctx.fillStyle = 'rgba(255,255,255,.12)';
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, R, -Math.PI / 2 - 0.5, -Math.PI / 2 + 0.5); ctx.closePath(); ctx.fill();
+    const [fx, fz] = forwardFlat(), rx = -fz, rz = fx;
+    const scale = R / Math.max(3, areaR);
+    for (const m of mosquitoes) {
+      if (m.T.ghost) continue;
+      const dx = m.pos[0] - camPos[0], dz = m.pos[2] - camPos[2];
+      let px = dx * rx + dz * rz, py = -(dx * fx + dz * fz);
+      px *= scale; py *= scale;
+      const l = Math.hypot(px, py), edge = l > R - 4;
+      if (edge) { px *= (R - 4) / l; py *= (R - 4) / l; }
+      ctx.fillStyle = m.mode === 'attack' ? '#ff3b3b' : '#ffcf3f';
+      ctx.globalAlpha = edge ? 0.55 : 1;
+      ctx.beginPath(); ctx.arc(cx + px, cy + py, m.mode === 'attack' ? 4 : 3, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1; ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.moveTo(cx, cy - 6); ctx.lineTo(cx - 4, cy + 4); ctx.lineTo(cx + 4, cy + 4); ctx.closePath(); ctx.fill();
     ctx.restore();
   }
 
   function render() {
     ctx.clearRect(0, 0, W, H);
     if (state === 'play' || state === 'over') {
-      let closest = Infinity;
+      let closestAttack = Infinity;
       const list = [];
       for (const m of mosquitoes) {
-        const dist = Math.hypot(m.pos[0], m.pos[1], m.pos[2]);
-        closest = Math.min(closest, dist);
+        const dist = len(sub(m.pos, camPos));
+        if (m.mode === 'attack') closestAttack = Math.min(closestAttack, dist);
         const pr = project(m.pos);
-        const r = pr.behind ? 0 : (m.T.size * focal) / pr.depth;
+        const r = pr.behind ? 0 : (m.T.size * pr.f) / pr.depth;
         const on = !pr.behind && pr.x > -r && pr.x < W + r && pr.y > -r && pr.y < H + r;
         m.screen = on ? { x: pr.x, y: pr.y, r, depth: pr.depth } : null;
         list.push({ m, pr, r, dist, on });
       }
-      // far first
       list.sort((a, b) => b.dist - a.dist);
       for (const it of list) {
         if (it.on) drawMosquito(it.m, it.pr.x, it.pr.y, it.r, it.dist);
-        else if (!it.m.T.ghost || it.dist < 2) drawEdgeArrow(it.pr.v, it.dist, it.m.T.ghost);
+        else if (it.m.mode === 'attack' && !it.m.T.ghost) drawEdgeArrow(it.pr.v, it.dist);
       }
-      // danger vignette when something is close
-      if (closest < 1.5 && state === 'play') {
-        const a = Math.min(0.45, (1.5 - closest) * 0.4) * (0.7 + 0.3 * Math.sin(time * 12));
+      if (closestAttack < 1.2 && state === 'play') {
+        const a = Math.min(0.45, (1.2 - closestAttack) * 0.5) * (0.7 + 0.3 * Math.sin(time * 12));
         const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
         g.addColorStop(0, 'rgba(255,0,0,0)'); g.addColorStop(1, `rgba(255,0,0,${a})`);
         ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
       }
+      if (state === 'play') drawRadar();
     }
     for (const pt of particles) {
       ctx.globalAlpha = Math.max(0, Math.min(1, pt.life * 2));
@@ -662,21 +784,32 @@
       ctx.fillStyle = '#ffcf3f'; ctx.fillText(pp.text, pp.x, pp.y);
     }
     ctx.globalAlpha = 1;
-    // crosshair-free: small center dot helps aiming with phone motion
-    if (state === 'play') { ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.beginPath(); ctx.arc(W / 2, H / 2, 2.5, 0, Math.PI * 2); ctx.fill(); }
   }
 
+  function step(dt) { update(dt); render(); }
   function loop(t) {
+    if (xrSession) return; // the XR session drives frames while it runs
     const dt = Math.min(0.05, (t - lastT) / 1000 || 0);
     lastT = t;
-    update(dt);
-    render();
+    step(dt);
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
 
   // ---------- Start ----------
-  try { const b = +localStorage.getItem('vizviz_best'); if (b) $('best').textContent = 'بهترین امتیاز: ' + b.toLocaleString('fa-IR'); } catch (_) {}
+  try { const b = +localStorage.getItem('vizviz_best'); if (b) $('best').textContent = 'بهترین امتیاز: ' + fa(b); } catch (_) {}
+  $('sizes').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    for (const x of $('sizes').children) x.classList.toggle('on', x === b);
+    areaR = +b.dataset.r;
+  });
+  let canXR = false;
+  xrSupported().then(ok => {
+    canXR = ok;
+    $('modeNote').textContent = ok
+      ? 'گوشیت از واقعیت افزوده‌ی کامل پشتیبانی می‌کنه: راه رفتنت دقیق دنبال می‌شه.'
+      : 'راه رفتنت با شمردن قدم‌ها دنبال می‌شه. گوشی رو جلوت نگه دار و آروم راه برو.';
+  });
 
   async function begin() {
     $('startScreen').classList.add('hidden');
@@ -684,18 +817,19 @@
     $('hud').classList.remove('hidden');
     if (!actx) initAudio();
     if (actx && actx.state === 'suspended') actx.resume();
-    if (!video.srcObject && !video.classList.contains('hidden')) {
-      // these must run from the tap so iOS shows its permission prompts
-      await Promise.all([enableSensors(), startCamera()]);
-    }
+    let xrOk = false;
+    if (canXR) { try { await startXR(); xrOk = true; } catch (err) { console.warn('XR failed, using sensors', err); } }
+    if (!xrOk) await Promise.all([enableSensors(), startCamera()]);
     state = 'play';
     resetGame();
   }
   $('startBtn').addEventListener('click', begin);
   $('againBtn').addEventListener('click', begin);
 
-  // expose for testing
-  window.__vizviz = { get state() { return state; }, get mosquitoes() { return mosquitoes; }, swat, get score() { return score; }, get health() { return health; } };
+  window.__vizviz = {
+    get state() { return state; }, get mosquitoes() { return mosquitoes; }, get score() { return score; },
+    get health() { return health; }, get level() { return level; }, camPos, swat
+  };
 })();
 </script>
 </body>
