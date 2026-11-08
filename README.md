@@ -28,3 +28,7 @@
 - پوشه‌ی `android/` یه پروژه‌ی Trusted Web Activity هست که بازی رو تمام‌صفحه داخل کروم باز می‌کنه (تا WebXR کار کنه).
 - با هر تغییر در `android/`، گردش‌کار GitHub Actions فایل‌های امضانشده‌ی AAB و APK رو می‌سازه و روی شاخه‌ی `android-build` می‌ذاره. امضا بیرون از گیت‌هاب انجام می‌شه و کلید هیچ‌وقت وارد ریپو نمی‌شه.
 - `twa/assetlinks.json` باید در `https://majidjoon1340.github.io/.well-known/assetlinks.json` قرار بگیره تا نوار آدرس بالای اپ حذف بشه.
+
+## اعتبار موزیک
+
+Music: "Cheery Monday" by Kevin MacLeod (https://filmmusic.io), licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/).

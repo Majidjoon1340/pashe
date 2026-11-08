@@ -1,8 +1,8 @@
 // Offline support: the game works after the first visit even without internet.
 // The page itself is fetched network-first so updates arrive as soon as they're online.
-const CACHE = 'vizviz-v1';
+const CACHE = 'vizviz-v2';
 const FILES = ['./', './index.html', './lib/three.module.min.js', './manifest.webmanifest',
-  './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
+  './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './audio/music.mp3'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));

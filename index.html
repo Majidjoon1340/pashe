@@ -60,10 +60,13 @@
     opacity: 0; transition: opacity .4s; line-height: 1.6;
   }
   #power {
-    position: absolute; top: calc(env(safe-area-inset-top) + 14px); right: 16px; pointer-events: none;
+    position: absolute; top: calc(env(safe-area-inset-top) + 14px); right: 66px; pointer-events: none;
     background: rgba(0,0,0,.5); border: 1px solid rgba(120,255,200,.6); color: #b8ffe0; border-radius: 16px;
     padding: 6px 14px; font-size: 15px; font-weight: 700; text-shadow: 0 1px 3px #000;
   }
+  #musicBtn2 { position: absolute; top: calc(env(safe-area-inset-top) + 12px); right: 16px; pointer-events: auto; font-size: 18px; background: rgba(0,0,0,.45); }
+  .iconBtn.off { color: var(--muted); border-color: rgba(255,255,255,.25); }
+  .homeTop .btns { display: flex; gap: 8px; }
   #banner small { display: block; font-size: 16px; color: #fff; font-weight: 600; }
   #hint {
     position: absolute; bottom: calc(env(safe-area-inset-bottom) + 92px); right: 16px; left: 16px; text-align: center;
@@ -157,12 +160,13 @@
   </div>
   <div id="banner"></div>
   <div id="power" class="hidden"></div>
+  <button id="musicBtn2" class="iconBtn hidden musicBtn" aria-label="موزیک">♪</button>
   <div id="hint"></div>
 </div>
 
 <div id="startScreen" class="screen home">
   <div class="homeTop">
-    <button id="helpBtn" class="iconBtn" aria-label="راهنما">?</button>
+    <div class="btns"><button id="helpBtn" class="iconBtn" aria-label="راهنما">?</button><button id="musicBtn" class="iconBtn musicBtn" aria-label="موزیک">♪</button></div>
     <div class="best" id="best"></div>
   </div>
   <div class="logo">
@@ -219,6 +223,7 @@
       </div>
     </div>
     <p class="small" id="modeNote"></p>
+    <p class="small" dir="ltr" style="text-align:center;font-size:12px;color:#8a909a">Music: "Cheery Monday" by Kevin MacLeod (filmmusic.io), CC BY 4.0</p>
     <button class="big" id="helpClose">فهمیدم</button>
   </div>
 </div>
@@ -381,6 +386,58 @@ function onXRFrame(t, frame) {
 
 // ---------- Audio ----------
 let actx = null, master = null, noiseBuf = null;
+// ---------- Music ----------
+// Quiet looping background track on its own gain, so it never competes with the game sounds:
+// it fades in, dips under explosions and bites, and pauses when the app goes to the background.
+const MUSIC_VOL = 0.22;
+let musicOn = true, musicBuf = null, musicSrc = null, musicGain = null, musicLoading = null, musicStarting = false;
+try { musicOn = localStorage.getItem('vizviz_music') !== 'off'; } catch (_) {}
+function loadMusic() {
+  return musicLoading || (musicLoading = fetch('audio/music.mp3').then(r => r.arrayBuffer()).then(b => actx.decodeAudioData(b)).then(buf => (musicBuf = buf)).catch(() => { musicLoading = null; return null; }));
+}
+function rampMusic(to, sec) {
+  if (!musicGain) return;
+  const t = actx.currentTime, g = musicGain.gain;
+  g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(to, t + sec);
+}
+async function startMusic() {
+  if (!actx || !musicOn || musicSrc || musicStarting) return;
+  musicStarting = true;
+  if (!musicGain) { musicGain = actx.createGain(); musicGain.gain.value = 0; musicGain.connect(actx.destination); }
+  const buf = await loadMusic();
+  musicStarting = false;
+  if (!buf || !musicOn || musicSrc) return;
+  musicSrc = actx.createBufferSource(); musicSrc.buffer = buf; musicSrc.loop = true;
+  musicSrc.connect(musicGain); musicSrc.start();
+  rampMusic(MUSIC_VOL, 2.5);
+}
+function stopMusic() {
+  if (!musicSrc) return;
+  const src = musicSrc; musicSrc = null;
+  rampMusic(0, 0.4); src.stop(actx.currentTime + 0.45);
+}
+function duckMusic(depth = 0.35, hold = 0.6) {
+  if (!musicSrc) return;
+  const t = actx.currentTime, g = musicGain.gain;
+  g.cancelScheduledValues(t); g.setValueAtTime(g.value, t);
+  g.linearRampToValueAtTime(MUSIC_VOL * depth, t + 0.08);
+  g.setValueAtTime(MUSIC_VOL * depth, t + hold);
+  g.linearRampToValueAtTime(MUSIC_VOL, t + hold + 1.2);
+}
+function showMusicState() {
+  document.querySelectorAll('.musicBtn').forEach(b => { b.classList.toggle('off', !musicOn); b.textContent = musicOn ? '♪' : '🔇'; });
+}
+function setMusic(on) {
+  musicOn = on; showMusicState();
+  try { localStorage.setItem('vizviz_music', on ? 'on' : 'off'); } catch (_) {}
+  if (on) { if (!actx) initAudio(); if (actx && actx.state === 'suspended') actx.resume(); startMusic(); }
+  else stopMusic();
+}
+document.addEventListener('visibilitychange', () => {
+  if (!actx) return;
+  if (document.hidden) actx.suspend().catch(() => {}); else actx.resume().catch(() => {});
+});
+
 function initAudio() {
   try {
     actx = new (window.AudioContext || window.webkitAudioContext)();
@@ -454,6 +511,8 @@ function sfx(type, arg) {
     const g = actx.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
     s.connect(f); f.connect(g); g.connect(master); s.start(t); s.stop(t + dur);
   };
+  if (type === 'boom' || type === 'bossIn') duckMusic(0.3, 0.9);
+  else if (type === 'bite' || type === 'splash' || type === 'whoosh') duckMusic(0.5, 0.4);
   if (type === 'splat') tone(320, 60, 0.15, 0.5, 'triangle');
   else if (type === 'hit') tone(700, 300, 0.08, 0.2, 'square');
   else if (type === 'bite') tone(140, 70, 0.35, 0.5, 'sawtooth');
@@ -1085,7 +1144,7 @@ function gameOver(quit, timeUp) {
   $('overText').innerHTML = 'به مرحله‌ی ' + fa(level) + ' رسیدی.<br>امتیاز: <b>' + fa(score) + '</b>' +
     (score > best ? '<br>رکورد جدید!' : (best ? '<br>بهترین امتیاز: ' + fa(best) : ''));
   $('overScreen').classList.remove('hidden');
-  $('hud').classList.add('hidden');
+  $('hud').classList.add('hidden'); $('musicBtn2').classList.add('hidden');
   hintEl.textContent = '';
   if (xrSession) xrSession.end().catch(() => {});
 }
@@ -1853,6 +1912,8 @@ async function begin() {
   $('hud').classList.remove('hidden');
   if (!actx) initAudio();
   if (actx && actx.state === 'suspended') actx.resume();
+  startMusic();
+  $('musicBtn2').classList.remove('hidden');
   let xrOk = false;
   if (canXR && trackMode === 'xr') { try { await startXR(); xrOk = true; } catch (err) { console.warn('XR failed, using sensors', err); } }
   if (!xrOk) await Promise.all([enableSensors(), startCamera()]);
@@ -1864,7 +1925,7 @@ function exitToMenu() {
   if (state !== 'play') return;
   state = 'menu';
   clearWorld();
-  $('hud').classList.add('hidden');
+  $('hud').classList.add('hidden'); $('musicBtn2').classList.add('hidden');
   hintEl.textContent = ''; bannerEl.style.opacity = 0;
   $('overScreen').classList.add('hidden');
   $('startScreen').classList.remove('hidden');
@@ -1874,6 +1935,8 @@ function exitToMenu() {
 $('exitBtn').addEventListener('click', exitToMenu);
 $('startBtn').addEventListener('click', begin);
 $('helpBtn').addEventListener('click', () => $('helpScreen').classList.remove('hidden'));
+document.querySelectorAll('.musicBtn').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); setMusic(!musicOn); }));
+showMusicState();
 $('helpClose').addEventListener('click', () => $('helpScreen').classList.add('hidden'));
 $('againBtn').addEventListener('click', begin);
 
@@ -1882,7 +1945,8 @@ window.__vizviz = {
   get health() { return health; }, get level() { return level; }, set level(v) { level = v; }, camPos, camQ, swat,
   get crate() { return crate; }, get power() { return power; }, set crateAt(v) { crateAt = v; }, get slowmo() { return slowmoT; },
   get lookYaw() { return lookYaw; }, set lookYaw(v) { lookYaw = v; }, set lookPitch(v) { lookPitch = v; },
-  spawnType: (t) => spawn(t, camPos.clone()), flyover: (m) => startFlyover(m)
+  spawnType: (t) => spawn(t, camPos.clone()), flyover: (m) => startFlyover(m),
+  get music() { return { on: musicOn, playing: !!musicSrc, gain: musicGain ? musicGain.gain.value : 0, dur: musicBuf ? musicBuf.duration : 0 }; }
 };
 </script>
 </body>
