@@ -90,6 +90,53 @@
   }
   .sizes button.on { background: rgba(255,207,63,.18); border-color: var(--accent); color: var(--accent); }
   #modeNote { color: #9fe3a8; }
+  .home { padding-top: calc(env(safe-area-inset-top) + 64px) !important; }
+  .home .logo { margin-top: auto; }
+  .home {
+    background:
+      radial-gradient(120% 60% at 50% -10%, rgba(255,207,63,.22), transparent 60%),
+      radial-gradient(90% 50% at 100% 110%, rgba(60,160,255,.18), transparent 60%),
+      linear-gradient(180deg, #10131a 0%, #07080b 100%);
+    gap: 12px;
+  }
+  .homeTop { position: absolute; top: calc(env(safe-area-inset-top) + 12px); left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: center; margin: 0 !important; }
+  .iconBtn {
+    width: 40px; height: 40px; border-radius: 50%; font: inherit; font-size: 20px; font-weight: 800; cursor: pointer;
+    color: var(--accent); background: rgba(255,255,255,.06); border: 1px solid rgba(255,207,63,.5);
+  }
+  .best { font-size: 13px; color: var(--accent); background: rgba(255,207,63,.1); border-radius: 14px; padding: 4px 12px; }
+  .best:empty { display: none; }
+  .logo { display: flex; flex-direction: column; align-items: center; margin-bottom: 4px; }
+  .logoImg { width: 84px; height: 84px; border-radius: 22px; box-shadow: 0 8px 30px rgba(255,207,63,.25), 0 0 0 1px rgba(255,255,255,.08); animation: float 4s ease-in-out infinite; }
+  @keyframes float { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-6px) } }
+  .logo h1 { font-size: 44px; margin: 8px 0 0; letter-spacing: 1px; background: linear-gradient(180deg, #ffe58a, #ffb81f); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .tag { color: var(--muted); font-size: 13px; margin-top: -2px; }
+  .card {
+    width: 100%; max-width: 420px; padding: 12px; border-radius: 18px; text-align: right;
+    background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.08); backdrop-filter: blur(6px);
+  }
+  .label { font-size: 13px; color: var(--muted); margin: 0 4px 8px; }
+  .seg { display: flex; gap: 6px; background: rgba(0,0,0,.35); padding: 4px; border-radius: 14px; }
+  .seg button {
+    flex: 1; font: inherit; font-size: 14px; padding: 9px 4px; border-radius: 11px; border: 0; cursor: pointer;
+    background: transparent; color: var(--fg); transition: background .2s, color .2s;
+  }
+  .seg button.on { background: linear-gradient(180deg, #ffd75a, #ffb81f); color: #241a00; font-weight: 700; box-shadow: 0 2px 10px rgba(255,190,40,.35); }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .grid button {
+    font: inherit; font-size: 13px; color: var(--fg); cursor: pointer; padding: 10px 4px 8px; border-radius: 14px;
+    background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.08); display: flex; flex-direction: column; align-items: center; gap: 4px;
+    transition: transform .15s, border-color .2s, background .2s;
+  }
+  .grid button span { font-size: 28px; line-height: 1.1; }
+  .grid button.on { border-color: var(--accent); background: rgba(255,207,63,.12); color: var(--accent); transform: translateY(-2px); box-shadow: 0 6px 18px rgba(255,207,63,.18); }
+  .home button.big { width: 100%; max-width: 420px; font-size: 22px; padding: 15px; margin-top: 4px; background: linear-gradient(180deg, #ffd75a, #ffb81f); animation: pulse 2.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { box-shadow: 0 4px 18px rgba(255,190,40,.35) } 50% { box-shadow: 0 4px 30px rgba(255,190,40,.65) } }
+  #helpScreen { z-index: 20; background: rgba(5,6,9,.85); backdrop-filter: blur(6px); }
+  .helpBox { max-width: 440px; width: 100%; background: #14171e; border: 1px solid rgba(255,255,255,.1); border-radius: 20px; padding: 18px 18px 14px; text-align: right; }
+  .helpBox h2 { margin: 0 0 6px; color: var(--accent); font-size: 22px; }
+  .helpBox p { font-size: 14px; line-height: 1.9; margin: 8px 0; }
+  .helpBox button.big { width: 100%; margin-top: 10px; }
   .hidden { display: none !important; }
 </style>
 </head>
@@ -111,33 +158,59 @@
   <div id="hint"></div>
 </div>
 
-<div id="startScreen" class="screen">
-  <h1>وزوز!</h1>
-  <p id="intro"></p>
-  <p class="small" id="intro2"></p>
-  <p style="margin-top:12px">حالت بازی</p>
-  <div class="sizes" id="modes">
-    <button data-m="attack">حمله به کاربر</button>
-    <button data-m="free" class="on">پرواز آزاد</button>
+<div id="startScreen" class="screen home">
+  <div class="homeTop">
+    <button id="helpBtn" class="iconBtn" aria-label="راهنما">?</button>
+    <div class="best" id="best"></div>
   </div>
-  <p class="small" id="modeDesc"></p>
-  <p style="margin-top:12px" id="whatQ">چی بهت حمله کنه؟</p>
-  <div class="sizes" id="themes">
-    <button data-t="mosquito">🦟 پشه</button>
-    <button data-t="bird">🐦 پرنده</button>
-    <button data-t="plane" class="on">✈️ هواپیما</button>
-    <button data-t="missile">🚀 موشک</button>
-    <button data-t="star">⭐ ستاره</button>
+  <div class="logo">
+    <img src="icons/icon-192.png" alt="" class="logoImg">
+    <h1>وزوز</h1>
+    <div class="tag">شکار در دنیای واقعی</div>
   </div>
-  <p style="margin-top:12px">جایی که بازی می‌کنی چقدر بزرگه؟</p>
-  <div class="sizes" id="sizes">
-    <button data-r="3">یه اتاق</button>
-    <button data-r="6" class="on">کل خونه</button>
-    <button data-r="12">حیاط یا فضای باز</button>
+
+  <div class="card">
+    <div class="label">حالت بازی</div>
+    <div class="seg" id="modes">
+      <button data-m="free" class="on">🕊️ پرواز آزاد</button>
+      <button data-m="attack">⚔️ حمله به کاربر</button>
+    </div>
   </div>
-  <p class="small" id="modeNote"></p>
+
+  <div class="card">
+    <div class="label" id="whatQ">با چی بازی کنی؟</div>
+    <div class="grid" id="themes">
+      <button data-t="plane" class="on"><span>✈️</span>هواپیما</button>
+      <button data-t="shark"><span>🦈</span>کوسه</button>
+      <button data-t="bird"><span>🐦</span>پرنده</button>
+      <button data-t="missile"><span>🚀</span>موشک</button>
+      <button data-t="star"><span>⭐</span>ستاره</button>
+      <button data-t="mosquito"><span>🦟</span>پشه</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="label">کجا بازی می‌کنی؟</div>
+    <div class="seg" id="sizes">
+      <button data-r="3">اتاق</button>
+      <button data-r="6" class="on">خونه</button>
+      <button data-r="12">فضای باز</button>
+    </div>
+  </div>
+
   <button class="big" id="startBtn">شروع</button>
-  <p class="small" id="best"></p>
+</div>
+
+<div id="helpScreen" class="screen hidden">
+  <div class="helpBox">
+    <h2>راهنما</h2>
+    <p id="intro"></p>
+    <p id="modeDesc"></p>
+    <p id="intro2"></p>
+    <p>اگه درست وسط هدف بزنی «عالی!» میاد و امتیازش دو برابر می‌شه. هر مرحله یه جعبه‌ی جایزه‌ی سبز یه جایی ظاهر می‌شه، پیداش کن و بزن روش. هر سه مرحله یه غول آخر میاد.</p>
+    <p class="small" id="modeNote"></p>
+    <button class="big" id="helpClose">فهمیدم</button>
+  </div>
 </div>
 
 <div id="overScreen" class="screen hidden">
@@ -385,6 +458,7 @@ function sfx(type, arg) {
   else if (type === 'power') { tone(660, 660, 0.15, 0.2, 'sine'); setTimeout(() => sfx('chime2'), 120); }
   else if (type === 'shieldHit') tone(300, 900, 0.25, 0.25, 'sine');
   else if (type === 'bossIn') { tone(110, 55, 1.2, 0.5, 'sawtooth'); noise(1.0, 0.4, 400, 80); }
+  else if (type === 'splash') { noise(0.8, 0.6, 900, 120); tone(220, 90, 0.4, 0.3, 'sine'); }
   else if (type === 'beep') tone(1700, 1700, 0.07, Math.max(0.04, 0.22 - (arg || 0) * 0.04), 'square');
 }
 
@@ -409,7 +483,11 @@ const THEMES = {
   star: { one: 'ستاره', many: 'ستاره‌ها', hitTitle: 'ستاره بهت رسید!',
     intro: 'چند تا ستاره‌ی طلایی چشمک‌زن این اطراف معلق موندن. نزدیکشون که بشی آروم به طرفت میان و هر چی نزدیک‌تر بشن بزرگ‌تر می‌شن.',
     speed: 0.9, turn: 4, bank: 0, aggro: 1.6, size: 0.12, impact: 'explode',
-    sound: { wave: 'sine', f: 2.1, lfo: 5, depth: 0.01, tone: 0.35 } }
+    sound: { wave: 'sine', f: 2.1, lfo: 5, depth: 0.01, tone: 0.35 } },
+  shark: { one: 'کوسه', many: 'کوسه‌ها', hitTitle: 'کوسه گازت گرفت!',
+    intro: 'زیر آبی و چند تا کوسه دور و برت شنا می‌کنن و دورت می‌چرخن.',
+    speed: 1.3, turn: 1.8, bank: 0.35, aggro: 1.6, size: 0.3, impact: 'bite', cruise: 0.5, orbit: 1.2,
+    sound: { wave: 'sine', f: 0.14, lfo: 0.7, depth: 0.3, tone: 0.4, noise: 280, noiseVol: 0.9 } }
 };
 let gameMode = 'free';   // default: free flight with planes
 try { if (localStorage.getItem('vizviz_mode') === 'attack') gameMode = 'attack'; } catch (_) {}
@@ -419,7 +497,7 @@ function applyMode() {
   $('modeDesc').textContent = FREE()
     ? 'کسی بهت حمله نمی‌کنه، ولی همه‌شون دائم در حال پروازن. قبل از تموم شدن وقت همه رو بزن. هر مرحله تندتر و پرمانورتر می‌شن.'
     : 'وقتی نزدیکشون بشی بهت حمله می‌کنن. قبل از اینکه بهت برسن بزنشون.';
-  $('whatQ').textContent = FREE() ? 'چی پرواز کنه؟' : 'چی بهت حمله کنه؟';
+  $('whatQ').textContent = FREE() ? 'با چی بازی کنی؟' : 'چی بهت حمله کنه؟';
   applyTheme();
 }
 let themeKey = 'plane';
@@ -449,6 +527,7 @@ const PALETTE = {
   mosquito: { normal: 0x2a2622, fast: 0x4a3a22, fat: 0x3a1d1d, splitter: 0x1f2b22, ghost: 0x303848, mini: 0x2a2622, boss: 0x4a1010 },
   bird:     { normal: 0x7a5a3c, fast: 0x34507a, fat: 0x5e4632, splitter: 0x4a6e42, ghost: 0x8a909a, mini: 0xa07a50, boss: 0x3a2614 },
   plane:    { normal: 0xc0392b, fast: 0xe0a020, fat: 0x56653f, splitter: 0x2f6fb5, ghost: 0x2c3038, mini: 0xc0392b, boss: 0x7a0f14 },
+  shark:    { normal: 0x6c7d8c, fast: 0x3e5f8a, fat: 0x7d838a, splitter: 0x8a7a58, ghost: 0x9ab0c0, mini: 0x7a8a96, boss: 0x46505a },
   star:     { normal: 0xffc83a, fast: 0xfff07a, fat: 0xffa020, splitter: 0xffd84a, ghost: 0xd8c890, mini: 0xffe066, boss: 0xff8a10 },
   missile:  { normal: 0xb8bcc2, fast: 0xd8b040, fat: 0x5f6b4a, splitter: 0x6f8fb0, ghost: 0x2c3038, mini: 0xd05040, boss: 0x4a5a34 }
 };
@@ -571,6 +650,79 @@ function buildMosquito(color, ghost) {
   return { root, mats, parts: { qwings: wings } };
 }
 
+function latheZ(key, pts, from, to) {
+  // a lathe around the body axis (Z), with grey back and white belly via vertex colours
+  return geo(key, () => {
+    const g = new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), 24).rotateX(Math.PI / 2).scale(0.82, 1, 1);
+    const pos = g.attributes.position, col = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      const t = THREE.MathUtils.smoothstep(pos.getY(i), -0.03, 0.015);
+      col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = t;   // 0 = belly, 1 = back
+    }
+    g.setAttribute('t', new THREE.BufferAttribute(col, 3));
+    return g;
+  });
+}
+function sharkMat(color) {
+  // blend between the back colour and an off-white belly using the per-vertex weight
+  const back = new THREE.Color(color), belly = new THREE.Color(0xeeeae2);
+  const m = stdMat(0xffffff, { roughness: 0.55, vertexColors: true });
+  m.userData.back = back; m.userData.belly = belly;
+  return m;
+}
+function paintLathe(g, back, belly) {
+  if (g.attributes.color) return g;
+  const t = g.attributes.t, c = new Float32Array(t.count * 3);
+  for (let i = 0; i < t.count; i++) {
+    const k = t.getX(i);
+    c[i * 3] = belly.r + (back.r - belly.r) * k; c[i * 3 + 1] = belly.g + (back.g - belly.g) * k; c[i * 3 + 2] = belly.b + (back.b - belly.b) * k;
+  }
+  const out = g.clone(); out.setAttribute('color', new THREE.BufferAttribute(c, 3));
+  return out;
+}
+function buildShark(color, ghost) {
+  const root = new THREE.Group(), mats = [];
+  const back = new THREE.Color(ghost ? 0x9ab0c0 : color), belly = new THREE.Color(0xeeeae2);
+  const skin = stdMat(0xffffff, { roughness: 0.5, vertexColors: true }); mats.push(skin);
+  const fin = stdMat(back.getHex(), { roughness: 0.55, side: THREE.DoubleSide }); mats.push(fin);
+  const dark = stdMat(0x2a0d10, { roughness: 0.8 }); mats.push(dark);
+  const toothM = stdMat(0xf8f6ee, { roughness: 0.3 }); mats.push(toothM);
+  const eyeM = new THREE.MeshBasicMaterial({ color: 0x050505 });
+  // front body: from the tail joint (z=-0.12) to the snout
+  const front = latheZ('shF', [[0.0, -0.13], [0.07, -0.12], [0.085, -0.02], [0.09, 0.05], [0.08, 0.14], [0.06, 0.22], [0.035, 0.28], [0.012, 0.31], [0.0, 0.315]]);
+  root.add(new THREE.Mesh(paintLathe(front, back, belly), skin));
+  // tail section bends from a pivot at the joint
+  const tail = new THREE.Group(); tail.position.z = -0.12; root.add(tail);
+  const rear = latheZ('shR', [[0.0, -0.2], [0.018, -0.19], [0.035, -0.14], [0.055, -0.06], [0.07, 0.0], [0.0, 0.01]]);
+  tail.add(new THREE.Mesh(paintLathe(rear, back, belly), skin));
+  const caudal = new THREE.Group(); caudal.position.z = -0.19; tail.add(caudal);
+  const cg = geo('shC', () => { const sh = new THREE.Shape(); sh.moveTo(0, 0); sh.quadraticCurveTo(-0.05, 0.08, -0.1, 0.15); sh.lineTo(-0.07, 0.05); sh.quadraticCurveTo(-0.06, -0.02, -0.08, -0.08); sh.quadraticCurveTo(-0.03, -0.04, 0, -0.01);
+    return new THREE.ExtrudeGeometry(sh, { depth: 0.006, bevelEnabled: false }).translate(0, 0, -0.003).rotateY(Math.PI / 2); });
+  caudal.add(mesh(cg, fin));
+  // dorsal fin, pectorals, small second dorsal
+  const dg = geo('shD', () => { const sh = new THREE.Shape(); sh.moveTo(0.06, 0); sh.quadraticCurveTo(0.03, 0.04, -0.03, 0.1); sh.quadraticCurveTo(-0.02, 0.04, -0.05, 0); sh.lineTo(0.06, 0);
+    return new THREE.ExtrudeGeometry(sh, { depth: 0.008, bevelEnabled: true, bevelThickness: 0.002, bevelSize: 0.002, bevelSegments: 1 }).translate(0, 0, -0.004).rotateY(Math.PI / 2); });
+  root.add(mesh(dg, fin, 0, 0.065, 0.02));
+  const d2 = mesh(dg, fin, 0, 0.035, -0.1); d2.scale.setScalar(0.35); tail.add(d2); d2.position.set(0, 0.04, 0.0);
+  const pg = geo('shP', () => { const sh = new THREE.Shape(); sh.moveTo(0, 0.03); sh.lineTo(0.12, -0.04); sh.lineTo(0.1, -0.06); sh.lineTo(0, -0.02);
+    return new THREE.ShapeGeometry(sh).rotateX(-Math.PI / 2); });
+  for (const sd of [1, -1]) {
+    const pf = mesh(pg, fin, sd * 0.055, -0.035, 0.1); pf.scale.x = sd; pf.rotation.z = sd * -0.45; root.add(pf);
+    root.add(mesh(geo('shE', () => new THREE.SphereGeometry(0.009, 10, 8)), eyeM, sd * 0.05, 0.02, 0.215));
+    for (let i = 0; i < 4; i++) { const gl = mesh(geo('shG', () => new THREE.BoxGeometry(0.002, 0.035, 0.004)), dark, sd * 0.07, -0.005, 0.15 - i * 0.015); gl.rotation.z = sd * 0.25; root.add(gl); }
+  }
+  // jaw with teeth, opens when attacking
+  const jaw = new THREE.Group(); jaw.position.set(0, -0.035, 0.24); root.add(jaw);
+  jaw.add(mesh(geo('shM', () => new THREE.SphereGeometry(0.04, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2).scale(1.1, 0.45, 1.0).rotateX(Math.PI)), dark, 0, 0, -0.01));
+  const tg = geo('shT', () => new THREE.ConeGeometry(0.0045, 0.014, 5));
+  for (let i = 0; i < 11; i++) {
+    const a = -Math.PI * 0.45 + i * (Math.PI * 0.9 / 10);
+    const t1 = mesh(tg, toothM, Math.sin(a) * 0.04, 0.004, Math.cos(a) * 0.035 - 0.01); jaw.add(t1);
+    const t2 = mesh(tg, toothM, Math.sin(a) * 0.038, -0.006, Math.cos(a) * 0.033 - 0.01); t2.rotation.x = Math.PI; root.add(t2); t2.position.add(jaw.position);
+  }
+  return { root, mats, parts: { tail, caudal, jaw } };
+}
+
 function buildStar(color, ghost) {
   const root = new THREE.Group(), mats = [];
   const gold = stdMat(color, { metalness: 0.3, roughness: 0.3, emissive: color, emissiveIntensity: 0.55 }); mats.push(gold);
@@ -659,6 +811,7 @@ function hidingSpot(minD, maxD) {
   const a = Math.random() * Math.PI * 2, d = rand(minD, maxD);
   let y;
   if (themeKey === 'plane' || themeKey === 'bird' || themeKey === 'star') y = rand(1.3, 2.3);
+  else if (themeKey === 'shark') y = rand(0.6, 2.1);
   else y = Math.random() < 0.25 ? rand(0.25, 0.5) : (Math.random() < 0.3 ? rand(1.9, 2.4) : rand(0.6, 1.8));
   return V(origin.x + Math.cos(a) * d, y, origin.z + Math.sin(a) * d);
 }
@@ -666,7 +819,7 @@ function hidingSpot(minD, maxD) {
 function spawn(typeKey, pos, plan) {
   const T = TYPES[typeKey];
   const color = PALETTE[themeKey][typeKey];
-  const build = { plane: buildPlane, missile: buildMissile, bird: buildBird, mosquito: buildMosquito, star: buildStar }[themeKey];
+  const build = { plane: buildPlane, missile: buildMissile, bird: buildBird, mosquito: buildMosquito, star: buildStar, shark: buildShark }[themeKey];
   const model = build(color, !!T.ghost);
   const baseScale = themeKey === 'missile' ? (T.boss ? 0.9 : 1.6) : 1;
   model.root.scale.setScalar(T.scale * baseScale);
@@ -809,8 +962,16 @@ function kill(m, sx, sy, perfect) {
   } else {
     // planes and birds fall out of the sky instead of vanishing
     const vel = m.heading.clone().multiplyScalar(m.speed * 0.6);
-    wrecks.push({ model: m.model, pos: m.pos.clone(), vel, spin: rand(2, 5) * (Math.random() < 0.5 ? 1 : -1), life: 2.2, q: m.model.root.quaternion.clone() });
+    wrecks.push({ model: m.model, pos: m.pos.clone(), vel, spin: (themeKey === 'shark' ? 1.4 : rand(2, 5)) * (Math.random() < 0.5 ? 1 : -1), life: themeKey === 'shark' ? 3 : 2.2, q: m.model.root.quaternion.clone() });
     if (themeKey === 'plane') { explosionAt(sx, sy, 14); sfx('boom'); }
+    else if (themeKey === 'shark') {
+      for (let i = 0; i < 22; i++) {
+        const a = Math.random() * Math.PI * 2, sp = 20 + Math.random() * 90, bub = Math.random() < 0.4;
+        particles.push({ x: sx, y: sy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - (bub ? 40 : 0), life: 1.2 + Math.random() * 0.6,
+          r: bub ? 2 + Math.random() * 3 : 6 + Math.random() * 10, c: bub ? 'rgba(220,245,255,.8)' : 'rgba(150,10,20,.45)', bubble: bub });
+      }
+      sfx('splash');
+    }
     else {
       for (let i = 0; i < 14; i++) {
         const a = Math.random() * Math.PI * 2, s = 30 + Math.random() * 110;
@@ -997,7 +1158,7 @@ function moveEntity(m, dt) {
     }
     m.pos.addScaledVector(m.heading, m.speed * dt);
     if (m.pos.distanceTo(camPos) < 0.3) { impact(m); return; }
-  } else if (themeKey === 'plane' || themeKey === 'bird') {
+  } else if (themeKey === 'plane' || themeKey === 'bird' || themeKey === 'shark') {
     // cruise: circle around the home spot (or fly to a new one), banking in the turns
     const rel = _t.copy(m.pos).sub(m.home); rel.y = 0;
     const R = theme.orbit, rl = rel.length() || 0.001;
@@ -1038,7 +1199,7 @@ function moveEntity(m, dt) {
 
 // Free flight: wander between random waypoints around the area, never attacking.
 // Speed, turning and side-to-side manoeuvres grow with the level.
-const FREE_SPEED = { mosquito: 0.35, bird: 0.55, plane: 0.7, missile: 0.8, star: 0.3 };
+const FREE_SPEED = { mosquito: 0.35, bird: 0.55, plane: 0.7, missile: 0.8, star: 0.3, shark: 0.55 };
 function moveFree(m, dt) {
   const T = m.T, lv = level - 1;
   const speed = FREE_SPEED[themeKey] * (1 + lv * 0.12) * (T.agile ? 1.3 : 1) * (T.hp > 1 ? 0.8 : 1);
@@ -1143,6 +1304,14 @@ function poseModel(m, dt) {
     for (const w of P.wings) { w.shoulder.rotation.z = (a * 0.75 + 0.1) * w.s; w.elbow.rotation.z = lag * 0.5; }
     P.eyeM.color.setHex(m.mode === 'attack' ? 0xff2020 : 0x111111);
   }
+  if (P.tail) {
+    const attack = m.mode === 'attack' || m.mode === 'flee';
+    m.swimT = (m.swimT || 0) + dt * (attack ? 8 : 3.5);
+    P.tail.rotation.y = Math.sin(m.swimT) * 0.4;
+    P.caudal.rotation.y = Math.sin(m.swimT - 0.9) * 0.45;
+    r.rotateY(-Math.sin(m.swimT) * 0.07);
+    P.jaw.rotation.x = attack ? 0.35 + 0.12 * Math.sin(time * 9) : 0.04;
+  }
   if (P.qwings) for (const w of P.qwings) w.p.rotation.z = (0.2 + Math.random() * 0.9) * w.s;
   if (P.beacon) {
     // slow blink while waiting, faster and faster as it closes in
@@ -1199,9 +1368,10 @@ function update(dt) {
 
   // wrecks and smoke keep animating even after game over
   for (const w of wrecks) {
-    w.life -= dt; w.vel.y -= 3.5 * dt; w.pos.addScaledVector(w.vel, dt);
+    w.life -= dt; w.vel.y -= (themeKey === 'shark' ? 0.4 : 3.5) * dt; if (themeKey === 'shark') w.vel.multiplyScalar(1 - dt); w.pos.addScaledVector(w.vel, dt);
     const r = w.model.root; r.position.copy(w.pos);
-    r.rotateZ(w.spin * dt); r.rotateX(0.8 * dt);
+    if (themeKey === 'shark') { if (Math.abs(w.turned = (w.turned || 0) + w.spin * dt) < Math.PI) r.rotateZ(w.spin * dt); }
+    else { r.rotateZ(w.spin * dt); r.rotateX(0.8 * dt); }
     if (themeKey === 'plane' && Math.random() < 0.6) puff(w.pos, 0.03, 0x444444, 1.0);
     if (w.pos.y < 0.05 || w.life <= 0) {
       if (themeKey === 'plane') { puff(w.pos, 0.08, 0xff8a1f, 0.4); puff(w.pos, 0.12, 0x555555, 1.4); }
@@ -1286,7 +1456,7 @@ function update(dt) {
 
   for (const pt of particles) {
     pt.life -= dt;
-    if (!pt.ring) { pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.vx *= 0.9; pt.vy *= 0.9; if (pt.feather) pt.vy += 60 * dt; }
+    if (!pt.ring) { pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.vx *= 0.9; pt.vy *= 0.9; if (pt.feather) pt.vy += 60 * dt; if (pt.bubble) pt.vy -= 80 * dt; }
     else pt.r += 180 * dt;
   }
   particles = particles.filter(p => p.life > 0);
@@ -1334,6 +1504,30 @@ function safeTop() {
   return _safeTop;
 }
 window.addEventListener('resize', () => { _safeTop = null; });
+
+// underwater look: blue-green tint, swaying light shafts from above, rising bubbles
+const bubbles = [];
+function drawWater() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, 'rgba(40,170,200,.22)'); g.addColorStop(1, 'rgba(0,40,80,.42)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 5; i++) {
+    const x = W * (0.1 + i * 0.2) + Math.sin(time * 0.4 + i * 1.7) * 40, w = 30 + 25 * Math.sin(time * 0.3 + i);
+    const lg = ctx.createLinearGradient(0, 0, 0, H * 0.8);
+    lg.addColorStop(0, 'rgba(180,240,255,.16)'); lg.addColorStop(1, 'rgba(180,240,255,0)');
+    ctx.fillStyle = lg; ctx.beginPath();
+    ctx.moveTo(x - w * 0.3, 0); ctx.lineTo(x + w * 0.3, 0); ctx.lineTo(x + w * 2 + 60, H * 0.8); ctx.lineTo(x - w * 0.5 + 60, H * 0.8); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+  if (bubbles.length < 26 && Math.random() < 0.3) bubbles.push({ x: Math.random() * W, y: H + 10, r: 1.5 + Math.random() * 4, v: 30 + Math.random() * 60, ph: Math.random() * 6 });
+  ctx.strokeStyle = 'rgba(220,250,255,.55)'; ctx.lineWidth = 1.2;
+  for (const b of bubbles) {
+    b.y -= b.v / 60; b.x += Math.sin(time * 2 + b.ph) * 0.4;
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.stroke();
+  }
+  for (let i = bubbles.length - 1; i >= 0; i--) if (bubbles[i].y < -10) bubbles.splice(i, 1);
+}
 
 function drawRadar() {
   const R = 50, cx = 16 + R, cy = safeTop() + 12 + R;
@@ -1426,6 +1620,7 @@ function render(dt) {
       g.addColorStop(0, 'rgba(80,200,255,0)'); g.addColorStop(1, `rgba(80,200,255,${0.25 + 0.1 * Math.sin(time * 6)})`);
       ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
     }
+    if (themeKey === 'shark') drawWater();
     if (state === 'play') drawRadar();
   }
   for (const pt of particles) {
@@ -1456,7 +1651,7 @@ function loop(t) {
 requestAnimationFrame(loop);
 
 // ---------- Start ----------
-try { const b = +localStorage.getItem('vizviz_best'); if (b) $('best').textContent = 'بهترین امتیاز: ' + fa(b); } catch (_) {}
+try { const b = +localStorage.getItem('vizviz_best'); if (b) $('best').textContent = '🏆 ' + fa(b); } catch (_) {}
 $('sizes').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   for (const x of $('sizes').children) x.classList.toggle('on', x === b);
@@ -1493,6 +1688,7 @@ async function begin() {
   let xrOk = false;
   if (canXR) { try { await startXR(); xrOk = true; } catch (err) { console.warn('XR failed, using sensors', err); } }
   if (!xrOk) await Promise.all([enableSensors(), startCamera()]);
+  scene.fog = themeKey === 'shark' ? new THREE.Fog(0x0b4a66, 1.2, 9) : null;
   state = 'play';
   resetGame();
 }
@@ -1504,11 +1700,13 @@ function exitToMenu() {
   hintEl.textContent = ''; bannerEl.style.opacity = 0;
   $('overScreen').classList.add('hidden');
   $('startScreen').classList.remove('hidden');
-  try { const b = +localStorage.getItem('vizviz_best'); if (b) $('best').textContent = 'بهترین امتیاز: ' + fa(b); } catch (_) {}
+  try { const b = +localStorage.getItem('vizviz_best'); if (b) $('best').textContent = '🏆 ' + fa(b); } catch (_) {}
   if (xrSession) xrSession.end().catch(() => {});
 }
 $('exitBtn').addEventListener('click', exitToMenu);
 $('startBtn').addEventListener('click', begin);
+$('helpBtn').addEventListener('click', () => $('helpScreen').classList.remove('hidden'));
+$('helpClose').addEventListener('click', () => $('helpScreen').classList.add('hidden'));
 $('againBtn').addEventListener('click', begin);
 
 window.__vizviz = {
