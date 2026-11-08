@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "io.github.majidjoon1340.vizviz",
+      "sha256_cert_fingerprints": [
+        "D4:F9:AF:E3:4F:B9:1D:58:F6:95:CB:61:38:4B:1E:E4:C3:45:FA:6F:54:08:88:0D:25:63:A7:1F:EA:EE:F6:FE"
+      ]
+    }
+  }
+]

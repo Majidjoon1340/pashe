@@ -20,3 +20,8 @@
 ## فایل‌ها
 - `index.html`: کل بازی
 - `lib/three.module.min.js`: کتابخونه‌ی three.js نسخه‌ی 0.160.0 برای نمایش سه‌بعدی (مجوز MIT در `lib/three.LICENSE`)
+
+## اپ اندروید
+- پوشه‌ی `android/` یه پروژه‌ی Trusted Web Activity هست که بازی رو تمام‌صفحه داخل کروم باز می‌کنه (تا WebXR کار کنه).
+- با هر تغییر در `android/`، گردش‌کار GitHub Actions فایل‌های امضانشده‌ی AAB و APK رو می‌سازه و روی شاخه‌ی `android-build` می‌ذاره. امضا بیرون از گیت‌هاب انجام می‌شه و کلید هیچ‌وقت وارد ریپو نمی‌شه.
+- `twa/assetlinks.json` باید در `https://majidjoon1340.github.io/.well-known/assetlinks.json` قرار بگیره تا نوار آدرس بالای اپ حذف بشه.
