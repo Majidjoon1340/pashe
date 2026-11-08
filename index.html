@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#000000">
-<title>وزوز: شکار پشه‌ها</title>
+<title>وزوز: حمله از هر طرف</title>
 <style>
   :root {
     --bg: #0b0d10;
@@ -85,7 +85,7 @@
   <div id="flash"></div>
   <div id="hud" class="hidden">
     <div class="stat">امتیاز: <b id="score">۰</b><br>مرحله: <span id="level">۱</span></div>
-    <div class="stat" style="text-align:left">پشه‌های مونده: <b id="left">۰</b><div id="healthWrap"><div id="health"></div></div></div>
+    <div class="stat" style="text-align:left"><span id="leftLabel">پشه‌های مونده</span>: <b id="left">۰</b><div id="healthWrap"><div id="health"></div></div></div>
   </div>
   <div id="banner"></div>
   <div id="hint"></div>
@@ -93,8 +93,15 @@
 
 <div id="startScreen" class="screen">
   <h1>وزوز!</h1>
-  <p>پشه‌ها توی خونه پخش شدن: بالای کمد، زیر میز، توی راهرو. راه برو، گوشی رو به اطراف بگیر و پیداشون کن. وقتی بهشون نزدیک بشی بهت حمله می‌کنن، پس قبل از اینکه نیشت بزنن با انگشت بزن روشون.</p>
-  <p class="small">رادار پایین صفحه نشون می‌ده پشه‌ها کدوم طرف و چقدر دورن. با هدفون صدای وزوزشون رو هم می‌شنوی.</p>
+  <p id="intro"></p>
+  <p class="small" id="intro2"></p>
+  <p style="margin-top:12px">چی بهت حمله کنه؟</p>
+  <div class="sizes" id="themes">
+    <button data-t="mosquito" class="on">🦟 پشه</button>
+    <button data-t="bird">🐦 پرنده</button>
+    <button data-t="plane">✈️ هواپیما</button>
+    <button data-t="missile">🚀 موشک</button>
+  </div>
   <p style="margin-top:12px">جایی که بازی می‌کنی چقدر بزرگه؟</p>
   <div class="sizes" id="sizes">
     <button data-r="3">یه اتاق</button>
@@ -318,10 +325,11 @@
   }
   function makeBuzz(pitch, vol) {
     if (!actx) return null;
-    const osc = actx.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = pitch;
-    const osc2 = actx.createOscillator(); osc2.type = 'square'; osc2.frequency.value = pitch * 1.005;
-    const lfo = actx.createOscillator(); lfo.frequency.value = 18 + Math.random() * 10;
-    const lfoGain = actx.createGain(); lfoGain.gain.value = pitch * 0.04;
+    const S = theme.sound; pitch *= S.f;
+    const osc = actx.createOscillator(); osc.type = S.wave; osc.frequency.value = pitch;
+    const osc2 = actx.createOscillator(); osc2.type = S.wave === 'sine' ? 'sine' : 'square'; osc2.frequency.value = pitch * 1.005;
+    const lfo = actx.createOscillator(); lfo.frequency.value = S.lfo * rand(0.8, 1.2);
+    const lfoGain = actx.createGain(); lfoGain.gain.value = pitch * S.depth;
     lfo.connect(lfoGain); lfoGain.connect(osc.frequency); lfoGain.connect(osc2.frequency);
     const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = pitch * 2.2; bp.Q.value = 1.2;
     const g2 = actx.createGain(); g2.gain.value = 0.35;
@@ -357,6 +365,7 @@
     else if (type === 'bite') env(140, 70, 0.35, 0.5, 'sawtooth');
     else if (type === 'alert') env(500, 900, 0.18, 0.15, 'sine');
     else if (type === 'level') env(440, 880, 0.4, 0.25, 'sine');
+    else if (type === 'boom') env(180, 30, 0.45, 0.6, 'sawtooth');
   }
 
   // ---------- Mosquito types ----------
@@ -369,6 +378,33 @@
     ghost:    { hp: 1, attack: 0.5,  size: 0.09, dmg: 10, aggro: 1.5, pitch: 620, vol: 0.7,  color: '#202530', score: 35, wiggle: 0.4, ghost: true },
     mini:     { hp: 1, attack: 0.7,  size: 0.06, dmg: 4,  aggro: 3.0, pitch: 840, vol: 0.35, color: '#2a2622', score: 10, wiggle: 0.8, zigzag: true }
   };
+
+  // ---------- Themes: what is attacking ----------
+  // Mechanics stay the same; look, size, sound and wording change.
+  const THEMES = {
+    mosquito: { one: 'پشه', many: 'پشه‌ها', size: 1, hitTitle: 'نیش خوردی!', bite: 'نیش',
+      intro: 'پشه‌ها توی خونه پخش شدن: بالای کمد، زیر میز، توی راهرو.',
+      sound: { wave: 'sawtooth', f: 1, lfo: 22, depth: 0.04 } },
+    bird: { one: 'پرنده', many: 'پرنده‌ها', size: 2.2, hitTitle: 'نوک خوردی!', bite: 'نوک',
+      intro: 'یه دسته پرنده‌ی عصبانی این اطراف نشستن: روی کمد، کنار پنجره، توی راهرو.',
+      sound: { wave: 'sine', f: 3.2, lfo: 7, depth: 0.25 } },
+    plane: { one: 'هواپیما', many: 'هواپیماها', size: 2.6, hitTitle: 'هواپیما بهت خورد!', bite: 'ضربه',
+      intro: 'یه گروه هواپیمای کوچیک این اطراف دور می‌زنن و منتظرن نزدیکشون بشی.',
+      sound: { wave: 'sawtooth', f: 0.22, lfo: 35, depth: 0.03 } },
+    missile: { one: 'موشک', many: 'موشک‌ها', size: 2.2, hitTitle: 'منفجر شدی!', bite: 'انفجار',
+      intro: 'چند تا موشک کوچیک این اطراف معلق موندن و تا نزدیکشون بشی شلیک می‌شن.',
+      sound: { wave: 'sawtooth', f: 0.45, lfo: 60, depth: 0.08 } }
+  };
+  let themeKey = 'mosquito';
+  try { const t = localStorage.getItem('vizviz_theme'); if (THEMES[t]) themeKey = t; } catch (_) {}
+  let theme = THEMES[themeKey];
+  function applyTheme() {
+    theme = THEMES[themeKey];
+    for (const x of $('themes').children) x.classList.toggle('on', x.dataset.t === themeKey);
+    $('intro').textContent = theme.intro + ' راه برو، گوشی رو به اطراف بگیر و پیداشون کن. وقتی بهشون نزدیک بشی بهت حمله می‌کنن، پس قبل از اینکه بهت برسن با انگشت بزن روشون.';
+    $('intro2').textContent = 'رادار پایین صفحه نشون می‌ده ' + theme.many + ' کدوم طرف و چقدر دورن. با هدفون صداشون رو هم می‌شنوی.';
+    $('leftLabel').textContent = theme.many + 'ی مونده';
+  }
 
   // ---------- Game state ----------
   let state = 'menu';
@@ -430,7 +466,7 @@
     }
     $('level').textContent = fa(level);
     updateLeft();
-    showBanner('مرحله‌ی ' + fa(level), fa(plan.count) + ' تا پشه این اطراف قایم شدن', 2200);
+    showBanner('مرحله‌ی ' + fa(level), fa(plan.count) + ' تا ' + theme.one + ' این اطراف قایم شدن', 2200);
     sfx('level');
   }
 
@@ -475,13 +511,7 @@
     score += pts;
     $('score').textContent = fa(score);
     popups.push({ x: sx, y: sy, text: '+' + fa(pts), life: 0.9 });
-    const n = 10 + (m.T.blood ? 10 : 0);
-    for (let i = 0; i < n; i++) {
-      const a = Math.random() * Math.PI * 2, s = 60 + Math.random() * 180;
-      particles.push({ x: sx, y: sy, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.5 + Math.random() * 0.3, r: 2 + Math.random() * 3,
-        c: m.T.blood || Math.random() < 0.3 ? '#b3121b' : '#1a1714' });
-    }
-    sfx('splat');
+    burst(sx, sy, m);
     if (m.T.split) {
       for (let i = 0; i < 2; i++) {
         const c = spawn('mini', hidingSpot(1.5, Math.max(2, areaR * 0.5)));
@@ -492,13 +522,29 @@
     try { navigator.vibrate && navigator.vibrate(15); } catch (_) {}
   }
 
+  function burst(sx, sy, m) {
+    const boom = themeKey === 'plane' || themeKey === 'missile';
+    const n = boom ? 26 : themeKey === 'bird' ? 16 : 10 + (m.T.blood ? 10 : 0);
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, s = (boom ? 90 : themeKey === 'bird' ? 40 : 60) + Math.random() * 180;
+      let c;
+      if (boom) c = ['#ffdf5a', '#ff8a1f', '#ff3b1f', '#555', '#333'][Math.floor(Math.random() * 5)];
+      else if (themeKey === 'bird') c = Math.random() < 0.5 ? '#f2efe6' : FEATHER[m.type] || '#8a6a4a';
+      else c = m.T.blood || Math.random() < 0.3 ? '#b3121b' : '#1a1714';
+      particles.push({ x: sx, y: sy, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: (themeKey === 'bird' ? 0.9 : 0.5) + Math.random() * 0.3,
+        r: (boom ? 3 : 2) + Math.random() * (boom ? 5 : 3), c, feather: themeKey === 'bird' });
+    }
+    if (boom) particles.push({ ring: true, x: sx, y: sy, life: 0.35, r: 6, c: 'rgba(255,170,40,.9)' });
+    sfx(boom ? 'boom' : 'splat');
+  }
+
   function gameOver(quit) {
     if (state !== 'play') return;
     state = 'over';
     mosquitoes.forEach(m => { stopBuzz(m.buzz); m.buzz = null; });
     let best = 0;
     try { best = +localStorage.getItem('vizviz_best') || 0; if (score > best) localStorage.setItem('vizviz_best', score); } catch (_) {}
-    $('overTitle').textContent = quit ? 'بازی تموم شد' : 'نیش خوردی!';
+    $('overTitle').textContent = quit ? 'بازی تموم شد' : theme.hitTitle;
     $('overText').innerHTML = 'به مرحله‌ی ' + fa(level) + ' رسیدی.<br>امتیاز: <b>' + fa(score) + '</b>' +
       (score > best ? '<br>رکورد جدید!' : (best ? '<br>بهترین امتیاز: ' + fa(best) : ''));
     $('overScreen').classList.remove('hidden');
@@ -621,15 +667,15 @@
     // hint text
     if (mosquitoes.length) {
       const nearest = Math.min(...mosquitoes.map(m => len(sub(m.pos, camPos))));
-      if (attackers) hintEl.textContent = attackers > 1 ? fa(attackers) + ' تا پشه دارن حمله می‌کنن!' : 'یه پشه داره حمله می‌کنه!';
-      else if (nearest > 2.2) hintEl.textContent = 'نزدیک‌ترین پشه حدود ' + fa(Math.round(nearest)) + ' متر دوره. راه برو و دنبالش بگرد.' +
+      if (attackers) hintEl.textContent = attackers > 1 ? fa(attackers) + ' تا ' + theme.one + ' دارن حمله می‌کنن!' : 'یه ' + theme.one + ' داره حمله می‌کنه!';
+      else if (nearest > 2.2) hintEl.textContent = 'نزدیک‌ترین ' + theme.one + ' حدود ' + fa(Math.round(nearest)) + ' متر دوره. راه برو و دنبالش بگرد.' +
         (mode === 'sensor' && hasSensor && steps === 0 && levelTime > 6 ? ' (گوشی رو جلوت نگه دار و راه برو، قدم‌هات شمرده می‌شه)' : '');
       else hintEl.textContent = 'خیلی نزدیکی، دور و برت رو نگاه کن.';
     } else hintEl.textContent = '';
 
     for (const pt of particles) {
       pt.life -= dt;
-      if (!pt.ring) { pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.vx *= 0.9; pt.vy *= 0.9; }
+      if (!pt.ring) { pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.vx *= 0.9; pt.vy *= 0.9; if (pt.feather) pt.vy += 60 * dt; }
       else pt.r += 160 * dt;
     }
     particles = particles.filter(p => p.life > 0);
@@ -703,6 +749,150 @@
     }
   }
 
+  const FEATHER = { normal: '#8a6a4a', fast: '#3d5a80', fat: '#6b4f3a', splitter: '#4f7a4a', ghost: '#9aa0aa', mini: '#b08a5a' };
+  const PAINT = { normal: '#d9dde3', fast: '#e0b43a', fat: '#6c7a5a', splitter: '#4f86c6', ghost: '#3a3f48', mini: '#e05a4a' };
+
+  function drawAttacker(m, x, y, r, dist) {
+    // screen-space heading, smoothed, so birds/planes/missiles point where they move
+    if (m.sx != null) {
+      const vx = x - m.sx, vy = y - m.sy;
+      if (Math.hypot(vx, vy) > 0.3) m.head = Math.atan2(vy, vx) * 0.25 + (m.head ?? Math.atan2(vy, vx)) * 0.75;
+    }
+    m.sx = x; m.sy = y;
+    if (themeKey === 'mosquito') return drawMosquito(m, x, y, r, dist);
+    const T = m.T;
+    let alpha = 1;
+    if (T.ghost) alpha = dist < 1.2 ? 0.85 : 0.15 + 0.1 * Math.sin(time * 6 + m.id);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(x, y);
+    const head = m.head ?? 0;
+    const flip = Math.cos(head) < 0;
+    if (themeKey === 'bird') drawBird(m, r, flip);
+    else if (themeKey === 'plane') drawPlane(m, r, flip, head);
+    else drawMissile(m, r, head);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+    if (T.hp > 1) {
+      for (let i = 0; i < T.hp; i++) {
+        ctx.fillStyle = i < m.hp ? '#ffcf3f' : 'rgba(255,255,255,.25)';
+        ctx.beginPath(); ctx.arc(x + (i - (T.hp - 1) / 2) * 9, y - r * 1.1, 3, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    if (r < 10 && alpha > 0.5) {
+      ctx.strokeStyle = m.mode === 'attack' ? 'rgba(255,60,60,.8)' : 'rgba(255,207,63,.6)';
+      ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+
+  function drawBird(m, r, flip) {
+    if (flip) ctx.scale(-1, 1);
+    const flap = Math.sin(time * (m.mode === 'attack' ? 16 : 9) + m.id);
+    const col = m.hitFlash > 0 ? '#fff' : FEATHER[m.type];
+    // far wing
+    ctx.fillStyle = shade(col, -25);
+    ctx.beginPath(); ctx.moveTo(-r * 0.1, -r * 0.05);
+    ctx.quadraticCurveTo(-r * 0.2, -r * (0.2 + 0.7 * flap), r * 0.35, -r * (0.15 + 0.85 * flap));
+    ctx.quadraticCurveTo(r * 0.2, -r * 0.1, r * 0.2, 0); ctx.fill();
+    // tail
+    ctx.fillStyle = shade(col, -15);
+    ctx.beginPath(); ctx.moveTo(-r * 0.5, 0); ctx.lineTo(-r * 0.95, -r * 0.18); ctx.lineTo(-r * 0.95, r * 0.18); ctx.closePath(); ctx.fill();
+    // body
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.ellipse(0, 0, r * 0.55, r * 0.26, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#f2efe6';
+    ctx.beginPath(); ctx.ellipse(r * 0.05, r * 0.1, r * 0.35, r * 0.13, 0, 0, Math.PI * 2); ctx.fill();
+    if (m.T.blood) { ctx.fillStyle = '#c0392b'; ctx.beginPath(); ctx.ellipse(r * 0.25, r * 0.08, r * 0.15, r * 0.1, 0, 0, Math.PI * 2); ctx.fill(); }
+    // head
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(r * 0.55, -r * 0.12, r * 0.2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#f0a020';
+    ctx.beginPath(); ctx.moveTo(r * 0.72, -r * 0.16); ctx.lineTo(r * 0.98, -r * 0.08); ctx.lineTo(r * 0.72, -r * 0.02); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = m.mode === 'attack' ? '#ff2a2a' : '#111';
+    ctx.beginPath(); ctx.arc(r * 0.6, -r * 0.17, r * 0.045, 0, Math.PI * 2); ctx.fill();
+    if (m.mode === 'attack') { // angry brow
+      ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(1, r * 0.04);
+      ctx.beginPath(); ctx.moveTo(r * 0.5, -r * 0.3); ctx.lineTo(r * 0.68, -r * 0.23); ctx.stroke();
+    }
+    // near wing
+    ctx.fillStyle = shade(col, 15);
+    ctx.beginPath(); ctx.moveTo(-r * 0.15, 0);
+    ctx.quadraticCurveTo(-r * 0.1, -r * (0.1 + 0.8 * flap), r * 0.45, -r * (0.05 + 0.95 * flap));
+    ctx.quadraticCurveTo(r * 0.3, 0, r * 0.25, r * 0.05); ctx.fill();
+  }
+
+  function drawPlane(m, r, flip, head) {
+    ctx.rotate(flip ? head - Math.PI : head);
+    ctx.rotate(Math.sin(m.phase * 1.3) * 0.15);
+    if (flip) ctx.scale(-1, 1);
+    const col = m.hitFlash > 0 ? '#fff' : PAINT[m.type];
+    // far wing
+    ctx.fillStyle = shade(col, -35);
+    ctx.beginPath(); ctx.moveTo(r * 0.15, -r * 0.05); ctx.lineTo(-r * 0.2, -r * 0.55); ctx.lineTo(-r * 0.35, -r * 0.55); ctx.lineTo(-r * 0.15, -r * 0.05); ctx.fill();
+    // tail fin
+    ctx.fillStyle = shade(col, -15);
+    ctx.beginPath(); ctx.moveTo(-r * 0.6, -r * 0.05); ctx.lineTo(-r * 0.85, -r * 0.4); ctx.lineTo(-r * 0.95, -r * 0.4); ctx.lineTo(-r * 0.85, 0); ctx.fill();
+    // fuselage
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.ellipse(0, 0, r * 0.95, r * 0.15, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = Math.max(0.6, r * 0.02); ctx.stroke();
+    // stripe and windows
+    ctx.fillStyle = m.T.blood ? '#7a2a1a' : '#c0392b';
+    ctx.fillRect(-r * 0.7, r * 0.02, r * 1.4, r * 0.04);
+    ctx.fillStyle = '#2a3a4a';
+    for (let i = 0; i < 6; i++) { ctx.beginPath(); ctx.arc(-r * 0.4 + i * r * 0.15, -r * 0.04, r * 0.03, 0, Math.PI * 2); ctx.fill(); }
+    ctx.beginPath(); ctx.ellipse(r * 0.75, -r * 0.05, r * 0.1, r * 0.05, 0, 0, Math.PI * 2); ctx.fill();
+    // near wing
+    ctx.fillStyle = shade(col, -10);
+    ctx.beginPath(); ctx.moveTo(r * 0.2, r * 0.05); ctx.lineTo(-r * 0.25, r * 0.6); ctx.lineTo(-r * 0.42, r * 0.6); ctx.lineTo(-r * 0.15, r * 0.05); ctx.fill();
+    // propeller blur
+    ctx.fillStyle = 'rgba(40,40,40,.35)';
+    ctx.beginPath(); ctx.ellipse(r * 0.97, 0, r * 0.03, r * 0.3, 0, 0, Math.PI * 2); ctx.fill();
+    if (m.mode === 'attack') { // exhaust smoke
+      ctx.fillStyle = 'rgba(200,200,200,.35)';
+      for (let i = 1; i <= 3; i++) { ctx.beginPath(); ctx.arc(-r * (0.95 + i * 0.18), Math.sin(time * 9 + i) * r * 0.05, r * 0.07 * i, 0, Math.PI * 2); ctx.fill(); }
+    }
+  }
+
+  function drawMissile(m, r, head) {
+    // resting missiles hang nose-down; attacking ones point where they fly
+    const ang = m.mode === 'attack' ? head : Math.PI / 2 + Math.sin(m.phase) * 0.2;
+    ctx.rotate(ang);
+    const col = m.hitFlash > 0 ? '#fff' : PAINT[m.type];
+    // flame
+    if (m.mode === 'attack' || m.mode === 'flee') {
+      const fl = 0.6 + 0.4 * Math.random();
+      ctx.fillStyle = 'rgba(255,140,30,.85)';
+      ctx.beginPath(); ctx.moveTo(-r * 0.75, -r * 0.09); ctx.lineTo(-r * (0.75 + 0.6 * fl), 0); ctx.lineTo(-r * 0.75, r * 0.09); ctx.fill();
+      ctx.fillStyle = 'rgba(255,240,150,.9)';
+      ctx.beginPath(); ctx.moveTo(-r * 0.75, -r * 0.05); ctx.lineTo(-r * (0.75 + 0.3 * fl), 0); ctx.lineTo(-r * 0.75, r * 0.05); ctx.fill();
+    } else {
+      ctx.fillStyle = 'rgba(200,200,200,.3)';
+      ctx.beginPath(); ctx.arc(-r * 0.85, 0, r * 0.08 + Math.sin(time * 5 + m.id) * r * 0.02, 0, Math.PI * 2); ctx.fill();
+    }
+    // fins
+    ctx.fillStyle = shade(col, -30);
+    ctx.beginPath(); ctx.moveTo(-r * 0.45, -r * 0.1); ctx.lineTo(-r * 0.75, -r * 0.32); ctx.lineTo(-r * 0.75, -r * 0.1); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-r * 0.45, r * 0.1); ctx.lineTo(-r * 0.75, r * 0.32); ctx.lineTo(-r * 0.75, r * 0.1); ctx.fill();
+    // body
+    ctx.fillStyle = col;
+    ctx.fillRect(-r * 0.75, -r * 0.1, r * 1.2, r * 0.2);
+    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = Math.max(0.6, r * 0.02); ctx.strokeRect(-r * 0.75, -r * 0.1, r * 1.2, r * 0.2);
+    // warning band
+    ctx.fillStyle = '#ffcf3f'; ctx.fillRect(-r * 0.1, -r * 0.1, r * 0.08, r * 0.2);
+    // nose cone
+    ctx.fillStyle = m.T.split ? '#4fbf6a' : '#c0392b';
+    ctx.beginPath(); ctx.moveTo(r * 0.45, -r * 0.1); ctx.quadraticCurveTo(r * 0.8, -r * 0.06, r * 0.88, 0); ctx.quadraticCurveTo(r * 0.8, r * 0.06, r * 0.45, r * 0.1); ctx.fill();
+    // blinking light
+    if (m.mode === 'attack' && Math.sin(time * 20) > 0) { ctx.fillStyle = '#ff2a2a'; ctx.beginPath(); ctx.arc(r * 0.3, 0, r * 0.05, 0, Math.PI * 2); ctx.fill(); }
+  }
+
+  function shade(hex, amt) {
+    const n = parseInt(hex.slice(1), 16);
+    const c = v => Math.max(0, Math.min(255, v + amt));
+    return 'rgb(' + c(n >> 16) + ',' + c((n >> 8) & 255) + ',' + c(n & 255) + ')';
+  }
+
   function drawEdgeArrow(v, dist) {
     const ang = Math.atan2(-v[1], v[0] || 1e-3);
     const margin = 26, tx = Math.cos(ang), ty = Math.sin(ang);
@@ -753,14 +943,14 @@
         const dist = len(sub(m.pos, camPos));
         if (m.mode === 'attack') closestAttack = Math.min(closestAttack, dist);
         const pr = project(m.pos);
-        const r = pr.behind ? 0 : (m.T.size * pr.f) / pr.depth;
+        const r = pr.behind ? 0 : (m.T.size * theme.size * pr.f) / pr.depth;
         const on = !pr.behind && pr.x > -r && pr.x < W + r && pr.y > -r && pr.y < H + r;
         m.screen = on ? { x: pr.x, y: pr.y, r, depth: pr.depth } : null;
         list.push({ m, pr, r, dist, on });
       }
       list.sort((a, b) => b.dist - a.dist);
       for (const it of list) {
-        if (it.on) drawMosquito(it.m, it.pr.x, it.pr.y, it.r, it.dist);
+        if (it.on) drawAttacker(it.m, it.pr.x, it.pr.y, it.r, it.dist);
         else if (it.m.mode === 'attack' && !it.m.T.ghost) drawEdgeArrow(it.pr.v, it.dist);
       }
       if (closestAttack < 1.2 && state === 'play') {
@@ -773,7 +963,8 @@
     }
     for (const pt of particles) {
       ctx.globalAlpha = Math.max(0, Math.min(1, pt.life * 2));
-      if (pt.ring) { ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2); ctx.stroke(); }
+      if (pt.ring) { ctx.strokeStyle = pt.c || 'rgba(255,255,255,.8)'; ctx.lineWidth = pt.c ? 5 : 2; ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2); ctx.stroke(); }
+      else if (pt.feather) { ctx.fillStyle = pt.c; ctx.beginPath(); ctx.ellipse(pt.x, pt.y, pt.r * 2, pt.r * 0.7, pt.life * 6, 0, Math.PI * 2); ctx.fill(); }
       else { ctx.fillStyle = pt.c; ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2); ctx.fill(); }
     }
     ctx.globalAlpha = 1;
@@ -803,6 +994,13 @@
     for (const x of $('sizes').children) x.classList.toggle('on', x === b);
     areaR = +b.dataset.r;
   });
+  $('themes').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    themeKey = b.dataset.t;
+    try { localStorage.setItem('vizviz_theme', themeKey); } catch (_) {}
+    applyTheme();
+  });
+  applyTheme();
   let canXR = false;
   xrSupported().then(ok => {
     canXR = ok;
