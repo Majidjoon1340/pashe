@@ -211,6 +211,13 @@
     <p id="intro2"></p>
     <p>اگه کنار نقطه‌ای توی <b>رادار</b> علامت <b>▲</b> باشه، هدف بالای سرته و باید گوشی رو بالاتر بگیری، و <b>▼</b> یعنی پایین‌تره. فلش‌های لبه‌ی صفحه هم سمت نزدیک‌ترین هدف رو نشون می‌دن.</p>
     <p>اگه درست وسط هدف بزنی «عالی!» میاد و امتیازش دو برابر می‌شه. هر مرحله یه جعبه‌ی جایزه‌ی سبز یه جایی ظاهر می‌شه، پیداش کن و بزن روش. هر سه مرحله یه غول آخر میاد.</p>
+    <div id="trackBox" class="hidden">
+      <p><b>نوع دوربین</b></p>
+      <div class="seg" id="track">
+        <button data-k="cam">📷 ساده</button>
+        <button data-k="xr">🛰️ واقعیت افزوده</button>
+      </div>
+    </div>
     <p class="small" id="modeNote"></p>
     <button class="big" id="helpClose">فهمیدم</button>
   </div>
@@ -1822,13 +1829,23 @@ $('modes').addEventListener('click', e => {
 });
 applyMode();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
-let canXR = false;
-xrSupported().then(ok => {
-  canXR = ok;
-  $('modeNote').textContent = ok
-    ? 'گوشیت از واقعیت افزوده‌ی کامل پشتیبانی می‌کنه: راه رفتنت دقیق دنبال می‌شه.'
-    : 'راه رفتنت با شمردن قدم‌ها دنبال می‌شه. گوشی رو جلوت نگه دار و آروم راه برو.';
-});
+// Camera type: 'cam' = plain camera + motion sensors (no browser message),
+// 'xr' = WebXR AR (exact walking tracking, but Chrome shows its own "exit full screen" message).
+let canXR = false, trackMode = 'cam';
+try { if (localStorage.getItem('vizviz_track') === 'xr') trackMode = 'xr'; } catch (_) {}
+function applyTrack() {
+  document.querySelectorAll('#track button').forEach(b => b.classList.toggle('on', b.dataset.k === trackMode));
+  $('modeNote').textContent = !canXR
+    ? 'راه رفتنت با شمردن قدم‌ها دنبال می‌شه. گوشی رو جلوت نگه دار و آروم راه برو.'
+    : trackMode === 'xr'
+      ? 'واقعیت افزوده: راه رفتنت دقیق دنبال می‌شه، ولی کروم موقع شروع پیام «خروج از تمام‌صفحه» رو نشون می‌ده.'
+      : 'ساده: هیچ پیامی نمیاد. راه رفتنت با شمردن قدم‌ها دنبال می‌شه، گوشی رو جلوت نگه دار و آروم راه برو.';
+}
+document.querySelectorAll('#track button').forEach(b => b.addEventListener('click', () => {
+  trackMode = b.dataset.k; try { localStorage.setItem('vizviz_track', trackMode); } catch (_) {} applyTrack();
+}));
+applyTrack();
+xrSupported().then(ok => { canXR = ok; $('trackBox').classList.toggle('hidden', !ok); applyTrack(); });
 
 async function begin() {
   $('startScreen').classList.add('hidden');
@@ -1837,7 +1854,7 @@ async function begin() {
   if (!actx) initAudio();
   if (actx && actx.state === 'suspended') actx.resume();
   let xrOk = false;
-  if (canXR) { try { await startXR(); xrOk = true; } catch (err) { console.warn('XR failed, using sensors', err); } }
+  if (canXR && trackMode === 'xr') { try { await startXR(); xrOk = true; } catch (err) { console.warn('XR failed, using sensors', err); } }
   if (!xrOk) await Promise.all([enableSensors(), startCamera()]);
   scene.fog = themeKey === 'shark' ? new THREE.Fog(0x0b4a66, 1.5, Math.max(10, areaR * 1.6)) : null;
   state = 'play';
