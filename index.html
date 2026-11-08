@@ -399,6 +399,7 @@ function applyMode() {
     ? 'کسی بهت حمله نمی‌کنه، ولی همه‌شون دائم در حال پروازن. قبل از تموم شدن وقت همه رو بزن. هر مرحله تندتر و پرمانورتر می‌شن.'
     : 'وقتی نزدیکشون بشی بهت حمله می‌کنن. قبل از اینکه بهت برسن بزنشون.';
   $('whatQ').textContent = FREE() ? 'چی پرواز کنه؟' : 'چی بهت حمله کنه؟';
+  applyTheme();
 }
 let themeKey = 'mosquito';
 try { const t = localStorage.getItem('vizviz_theme'); if (THEMES[t]) themeKey = t; } catch (_) {}
@@ -406,7 +407,9 @@ let theme = THEMES[themeKey];
 function applyTheme() {
   theme = THEMES[themeKey];
   for (const x of $('themes').children) x.classList.toggle('on', x.dataset.t === themeKey);
-  $('intro').textContent = theme.intro + ' راه برو، گوشی رو به اطراف بگیر و پیداشون کن. وقتی بهشون نزدیک بشی بهت حمله می‌کنن، پس قبل از اینکه بهت برسن با انگشت بزن روشون.';
+  $('intro').textContent = FREE()
+    ? theme.many + ' دور و برت در حال پروازن. راه برو، گوشی رو به اطراف بگیر، دنبالشون کن و با انگشت بزن روشون.'
+    : theme.intro + ' راه برو، گوشی رو به اطراف بگیر و پیداشون کن. وقتی بهشون نزدیک بشی بهت حمله می‌کنن، پس قبل از اینکه بهت برسن با انگشت بزن روشون.';
   $('intro2').textContent = 'رادار پایین صفحه نشون می‌ده ' + theme.many + ' کدوم طرف و چقدر دورن. با هدفون صداشون رو هم می‌شنوی.';
   $('leftLabel').textContent = theme.many + 'ی مونده';
 }
@@ -1267,7 +1270,6 @@ $('modes').addEventListener('click', e => {
   try { localStorage.setItem('vizviz_mode', gameMode); } catch (_) {}
   applyMode();
 });
-applyTheme();
 applyMode();
 let canXR = false;
 xrSupported().then(ok => {
