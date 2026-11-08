@@ -1,0 +1,29 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'io.github.majidjoon1340.vizviz'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'io.github.majidjoon1340.vizviz'
+        minSdk 24          // ARCore needs Android 7.0+
+        targetSdk 36
+        versionCode 1
+        versionName '1.0'
+        manifestPlaceholders = [
+            hostName: 'majidjoon1340.github.io',
+            launchUrl: 'https://majidjoon1340.github.io/pashe/?source=app'
+        ]
+    }
+    buildTypes {
+        release { minifyEnabled false }   // signed outside the build, keys never touch CI
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+}

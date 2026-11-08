@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#000000">
 <title>وزوز: حمله از هر طرف</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <style>
   :root {
     --bg: #0b0d10;
@@ -1271,6 +1274,7 @@ $('modes').addEventListener('click', e => {
   applyMode();
 });
 applyMode();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 let canXR = false;
 xrSupported().then(ok => {
   canXR = ok;
