@@ -968,6 +968,11 @@ function pick(pool) {
 // Gentle side-to-side manoeuvres only from level 3 on; level 1-2 come straight at you.
 function weaveAmount() { return level <= 2 ? 0 : Math.min(0.6, (level - 2) * 0.1); }
 
+function anchored() { return areaR <= 6; }
+function distFromSpace(p) { return Math.hypot(p.x - origin.x, p.z - origin.z); }
+// in an anchored space, has the player walked out of it?
+function playerOutside() { return anchored() && distFromSpace(camPos) > areaR + 0.8; }
+
 function hidingSpot(minD, maxD) {
   const a = Math.random() * Math.PI * 2, d = rand(minD, maxD);
   let y;
@@ -1006,7 +1011,9 @@ function removeModel(model) {
 
 function startLevel() {
   level++; levelTime = 0;
-  origin.set(camPos.x, 0, camPos.z);
+  // Room and home: the play space is anchored where the game started and stays there for the whole game,
+  // so targets wait in that room when you walk out. Outdoors it moves along with you, level by level.
+  if (level === 1 || !anchored()) origin.set(camPos.x, 0, camPos.z);
   const plan = levelPlan(level);
   const bossLevel = level % 3 === 0;
   if (bossLevel) plan.count = Math.ceil(plan.count / 2);
@@ -1082,6 +1089,7 @@ function impact(m) {
     const ahead = m.heading.clone(); ahead.y = 0; if (ahead.lengthSq() < 0.01) ahead.set(1, 0, 0); ahead.normalize();
     const d = rand(2.5, Math.max(3, areaR * 0.7));
     m.home.set(camPos.x + ahead.x * d + rand(-1, 1), themeKey === 'mosquito' ? rand(0.5, 2.2) : rand(1.1, 2.0), camPos.z + ahead.z * d + rand(-1, 1));
+    if (anchored() && distFromSpace(m.home) > areaR) m.home.copy(hidingSpot(1.5, areaR));
     m.mode = 'flee'; m.cool = 6;
   }
   if (health <= 0) gameOver(false);
@@ -1276,14 +1284,14 @@ const _d = V(), _t = V(), _s = V();
 function turnToward(h, desired, rate, dt) {
   const ang = h.angleTo(desired);
   if (ang < 1e-4) return;
-  if (ang > 3.0) desired = desired.clone().add(V(-h.z, 0, h.x).multiplyScalar(0.2)).normalize();
+  if (ang > 2.6) desired = desired.clone().add(V(-h.z, 0, h.x).multiplyScalar(0.5)).normalize();   // turning right round: commit to one side
   h.lerp(desired, Math.min(1, rate * dt / ang)).normalize();
 }
 
 // Flyover: now and then a target swoops right over the player's head and out the other side.
 const FLYOVER = { plane: 1, bird: 1, shark: 1, missile: 1, star: 0.6 };
 function canFlyover(m) {
-  return FLYOVER[themeKey] && !m.T.boss && !m.T.ghost && !mosquitoes.some(o => o.fly && !o.dead) && m.pos.distanceTo(camPos) > 1.8;
+  return FLYOVER[themeKey] && !m.T.boss && !m.T.ghost && !playerOutside() && !mosquitoes.some(o => o.fly && !o.dead) && m.pos.distanceTo(camPos) > 1.8;
 }
 function startFlyover(m) {
   const a = Math.atan2(m.pos.z - camPos.z, m.pos.x - camPos.x) + Math.PI + rand(-0.35, 0.35);
@@ -1293,7 +1301,7 @@ function startFlyover(m) {
 // returns the direction to steer in, or null once the pass is over
 function flyoverDir(m, dt) {
   const f = m.fly; f.t -= dt;
-  if (f.t <= 0) { m.fly = null; return null; }
+  if (f.t <= 0 || (f.stage === 0 && playerOutside())) { m.fly = null; return null; }
   if (f.stage === 0) {
     const tx = camPos.x - m.pos.x, tz = camPos.z - m.pos.z, hd = Math.hypot(tx, tz);
     // passed overhead (or right next to it, and now moving away)?
@@ -1302,6 +1310,7 @@ function flyoverDir(m, dt) {
       // carry on in the same direction rather than turning back
       const h = V(m.heading.x, 0, m.heading.z).normalize(), d = rand(2.2, Math.max(2.8, areaR * 0.6));
       f.far.set(camPos.x + h.x * d, rand(1.0, 1.9), camPos.z + h.z * d);
+      if (anchored() && distFromSpace(f.far) > areaR) f.far.copy(hidingSpot(1, areaR));
     }
     else return V(tx, camPos.y + f.h - m.pos.y, tz).normalize();
   }
@@ -1314,12 +1323,13 @@ function moveEntity(m, dt) {
   const T = m.T;
   const wv = weaveAmount() + (T.agile && level >= 3 ? 0.15 : 0);
 
-  if (m.mode === 'rest' && dP < m.aggro && m.cool <= 0) {
+  if (m.mode === 'rest' && dP < m.aggro && m.cool <= 0 && !playerOutside()) {
     m.mode = 'attack'; m.attackT = 0;
     sfx(themeKey === 'missile' ? 'launch' : 'alert');
   }
   if (m.mode === 'attack' && dP > m.aggro * 2.6 && themeKey !== 'missile' && themeKey !== 'star') { m.mode = 'rest'; m.cool = 2; }
   if (m.mode === 'flee' && m.cool <= 0) m.mode = 'rest';
+  if (m.mode === 'attack' && playerOutside()) { m.mode = 'rest'; m.cool = 2; m.speed *= 0.5; }
 
   let attackSpeed = T.speed * theme.speed * m.speedMul;
   if (themeKey === 'star') attackSpeed *= Math.min(2.2, 0.55 + 0.15 * (level - 1));
@@ -1357,7 +1367,8 @@ function moveEntity(m, dt) {
       turnToward(m.heading, desired, theme.turn * 1.2, dt);
       m.speed += (Math.max(theme.cruise * 1.6, 0.6) - m.speed) * Math.min(1, dt * 1.2);
       m.pos.addScaledVector(m.heading, m.speed * dt);
-    } else m.home.copy(m.pos);
+    } else if (anchored() && distFromSpace(m.pos) > areaR) m.home.copy(hidingSpot(1.5, areaR));
+    else m.home.copy(m.pos);
   } else if (themeKey === 'plane' || themeKey === 'bird' || themeKey === 'shark') {
     // cruise: circle around the home spot (or fly to a new one), banking in the turns
     m.flyCool = (m.flyCool ?? rand(6, 16)) - dt;
@@ -1365,10 +1376,10 @@ function moveEntity(m, dt) {
     const rel = _t.copy(m.pos).sub(m.home); rel.y = 0;
     const R = theme.orbit, rl = rel.length() || 0.001;
     let desired;
-    if (m.mode === 'flee' || rl > R * 2.2) desired = m.home.clone().sub(m.pos).normalize();
+    if (m.mode === 'flee' || rl > R * 1.8) desired = m.home.clone().sub(m.pos).normalize();
     else {
       desired = V(-rel.z * m.orbitDir, 0, rel.x * m.orbitDir).normalize();
-      desired.addScaledVector(rel.normalize(), -(rl - R) * 1.5);
+      desired.addScaledVector(rel.normalize(), -(rl - R) * 2.5);
       desired.y = (m.home.y - m.pos.y) * 1.2;
       desired.normalize();
     }
@@ -1438,17 +1449,19 @@ function moveFree(m, dt) {
 // and in attack mode now and then dives at the player.
 function moveBoss(m, dt) {
   const toP = _d.copy(camPos).sub(m.pos), dP = toP.length();
-  const R = 2.8;
+  // in a room or home the boss circles the middle of that space, otherwise it circles you
+  const centre = anchored() ? origin : camPos, R = anchored() ? Math.min(2.8, areaR * 0.6) : 2.8;
   let desired, speed = 0.55 * (1 + level * 0.04);
   m.diveCool -= dt;
-  if (!FREE() && m.mode !== 'attack' && m.diveCool <= 0) { m.mode = 'attack'; m.diveT = 3; sfx('alert'); }
+  if (m.mode === 'attack' && playerOutside()) { m.mode = 'cruise'; m.diveCool = rand(4, 7); }
+  if (!FREE() && m.mode !== 'attack' && m.diveCool <= 0 && !playerOutside()) { m.mode = 'attack'; m.diveT = 3; sfx('alert'); }
   if (m.mode === 'attack') {
     m.diveT -= dt;
     desired = toP.clone().normalize(); speed *= 2;
     if (dP < 0.6) { hurt(m); if (health <= 0) { gameOver(false); return; } m.diveT = 0; }
     if (m.diveT <= 0) { m.mode = 'cruise'; m.diveCool = rand(7, 11); }
   } else {
-    const rel = _t.copy(m.pos).sub(camPos); rel.y = 0;
+    const rel = _t.copy(m.pos).sub(centre); rel.y = 0;
     const rl = rel.length() || 0.001;
     desired = V(-rel.z * m.orbitDir, 0, rel.x * m.orbitDir).normalize();
     desired.addScaledVector(rel.normalize(), -(rl - R) * 1.2);
