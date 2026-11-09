@@ -1940,7 +1940,7 @@ async function begin() {
   resetGame();
 }
 function exitToMenu() {
-  if (state !== 'play') return;
+  if (state !== 'play' && state !== 'over') return;
   state = 'menu';
   clearWorld();
   $('hud').classList.add('hidden'); $('musicBtn2').classList.add('hidden');
@@ -1950,13 +1950,24 @@ function exitToMenu() {
   try { const b = +localStorage.getItem('vizviz_best'); if (b) $('best').textContent = '🏆 ' + fa(b); } catch (_) {}
   if (xrSession) xrSession.end().catch(() => {});
 }
-$('exitBtn').addEventListener('click', exitToMenu);
-$('startBtn').addEventListener('click', begin);
-$('helpBtn').addEventListener('click', () => $('helpScreen').classList.remove('hidden'));
+// Android back key: in the game (or the help page) it goes back to the home screen;
+// on the home screen it leaves the app as usual. One extra history entry stands in for "inside".
+let backEntry = false;
+function pushBack() { if (!backEntry) { history.pushState({ vizviz: 1 }, ''); backEntry = true; } }
+function dropBack() { if (backEntry) { backEntry = false; history.back(); } }
+window.addEventListener('popstate', () => {
+  if (!backEntry) return;
+  backEntry = false;
+  if (!$('helpScreen').classList.contains('hidden')) $('helpScreen').classList.add('hidden');
+  else exitToMenu();
+});
+$('exitBtn').addEventListener('click', () => { exitToMenu(); dropBack(); });
+$('startBtn').addEventListener('click', () => { pushBack(); begin(); });
+$('helpBtn').addEventListener('click', () => { $('helpScreen').classList.remove('hidden'); pushBack(); });
 document.querySelectorAll('.musicBtn').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); setMusic(!musicOn); }));
 showMusicState();
-$('helpClose').addEventListener('click', () => $('helpScreen').classList.add('hidden'));
-$('againBtn').addEventListener('click', begin);
+$('helpClose').addEventListener('click', () => { $('helpScreen').classList.add('hidden'); dropBack(); });
+$('againBtn').addEventListener('click', () => { pushBack(); begin(); });
 
 // ---------- Welcome video ----------
 (function intro() {
