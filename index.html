@@ -1012,12 +1012,13 @@ function startLevel() {
   if (bossLevel) plan.count = Math.ceil(plan.count / 2);
   for (let i = 0; i < plan.count; i++) {
     const frac = i / plan.count;
-    const minD = i < 2 ? 1.8 : Math.max(1.8, areaR * 0.3);
-    const maxD = i < 2 ? Math.min(2.8, Math.max(2, areaR)) : areaR * (0.6 + 0.4 * frac);
+    // the first two are always fairly close so a level never starts empty; the rest spread over the chosen space
+    const minD = i < 2 ? Math.max(1.5, areaR * 0.3) : Math.max(1.8, areaR * 0.4);
+    const maxD = i < 2 ? Math.max(2.2, areaR * 0.5) : areaR * (0.7 + 0.3 * frac);
     const m = spawn(pick(plan.pool), hidingSpot(minD, Math.max(minD + 0.5, maxD)), plan);
     if (FREE()) { m.mode = 'cruise'; m.speed = 0.2; }
   }
-  levelLimit = FREE() ? 40 + plan.count * 8 + (bossLevel ? 40 : 0) : 0;
+  levelLimit = FREE() ? 40 + plan.count * 8 + (bossLevel ? 40 : 0) + Math.round(areaR * 2) : 0;   // more walking needs more time
   if (bossLevel) {
     const [fx, fz] = forwardFlat(), a = Math.atan2(fz, fx) + rand(-0.8, 0.8);
     const b = spawn('boss', V(camPos.x + Math.cos(a) * 4, 1.7, camPos.z + Math.sin(a) * 4), plan);
@@ -1403,12 +1404,12 @@ function moveEntity(m, dt) {
 const FREE_SPEED = { mosquito: 0.35, bird: 0.55, plane: 0.7, missile: 0.8, star: 0.3, shark: 0.55 };
 function moveFree(m, dt) {
   const T = m.T, lv = level - 1;
-  const speed = FREE_SPEED[themeKey] * (1 + lv * 0.12) * (T.agile ? 1.3 : 1) * (T.hp > 1 ? 0.8 : 1);
+  const speed = FREE_SPEED[themeKey] * (0.7 + areaR * 0.05) * (1 + lv * 0.12) * (T.agile ? 1.3 : 1) * (T.hp > 1 ? 0.8 : 1);
   m.wpT = (m.wpT || 0) - dt;
   let desired = m.fly ? flyoverDir(m, dt) : null;
   if (!desired) {
     if (!m.wp || m.pos.distanceTo(m.wp) < 0.5 || m.wpT <= 0) {
-      m.wp = hidingSpot(0.8, Math.max(2, areaR)); m.wpT = rand(5, 10);
+      m.wp = hidingSpot(Math.max(0.8, areaR * 0.25), Math.max(2, areaR)); m.wpT = rand(5, 10);
       if (canFlyover(m) && Math.random() < 0.3) startFlyover(m);
     }
     desired = m.wp.clone().sub(m.pos).normalize();
@@ -1778,6 +1779,9 @@ function drawRadar() {
     const l = Math.hypot(px, py); if (l > R - 5) { px *= (R - 5) / l; py *= (R - 5) / l; }
     ctx.globalAlpha = 1; ctx.fillStyle = '#50ffb0'; ctx.fillRect(cx + px - 4, cy + py - 4, 8, 8);
   }
+  // radar range, so the chosen play space is visible
+  ctx.globalAlpha = 0.75; ctx.fillStyle = '#fff'; ctx.font = '10px Vazirmatn, Tahoma, sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText(fa(Math.max(3, areaR)) + ' متر', cx, cy + R - 5);
   ctx.globalAlpha = 1; ctx.fillStyle = '#fff';
   ctx.beginPath(); ctx.moveTo(cx, cy - 6); ctx.lineTo(cx - 4, cy + 4); ctx.lineTo(cx + 4, cy + 4); ctx.closePath(); ctx.fill();
   ctx.restore();
@@ -1891,7 +1895,9 @@ $('sizes').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   for (const x of $('sizes').children) x.classList.toggle('on', x === b);
   areaR = +b.dataset.r;
+  try { localStorage.setItem('vizviz_size', areaR); } catch (_) {}
 });
+try { const r = +localStorage.getItem('vizviz_size'); if (r === 3 || r === 6 || r === 12) { areaR = r; for (const x of $('sizes').children) x.classList.toggle('on', +x.dataset.r === r); } } catch (_) {}
 $('themes').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   themeKey = b.dataset.t;
