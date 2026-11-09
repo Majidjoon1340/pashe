@@ -143,9 +143,25 @@
   .helpBox b { color: var(--accent); }
   .helpBox button.big { width: 100%; margin-top: 10px; }
   .hidden { display: none !important; }
+  /* welcome video, shown once each time the app starts */
+  #welcome { position: fixed; inset: 0; z-index: 50; background: #000 url(media/intro.jpg) center / cover no-repeat; transition: opacity .6s; }
+  #welcome video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #welcome.fade { opacity: 0; pointer-events: none; }
+  #welcome button { position: absolute; font: inherit; color: #fff; cursor: pointer; background: rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.45); border-radius: 22px; }
+  #introSkip { left: 16px; bottom: calc(env(safe-area-inset-bottom) + 20px); padding: 8px 18px; font-size: 15px; font-weight: 700; }
+  #introSound { right: 16px; bottom: calc(env(safe-area-inset-bottom) + 20px); width: 44px; height: 44px; font-size: 20px; }
 </style>
 </head>
 <body>
+<div id="welcome">
+  <video id="introVid" playsinline preload="auto" poster="media/intro.jpg" src="media/intro.mp4"></video>
+  <button id="introSound" class="hidden" aria-label="صدا">🔊</button>
+  <button id="introSkip">رد شو ›</button>
+</div>
+<script>
+  // only once per app launch (not again after a reload in the same session)
+  try { if (sessionStorage.getItem('vizviz_intro')) document.getElementById('welcome').remove(); } catch (e) {}
+</script>
 <video id="cam" playsinline muted autoplay></video>
 <div id="fallbackBg"></div>
 
@@ -1939,6 +1955,33 @@ document.querySelectorAll('.musicBtn').forEach(b => b.addEventListener('click', 
 showMusicState();
 $('helpClose').addEventListener('click', () => $('helpScreen').classList.add('hidden'));
 $('againBtn').addEventListener('click', begin);
+
+// ---------- Welcome video ----------
+(function intro() {
+  const box = $('welcome'); if (!box) return;
+  const vid = $('introVid');
+  try { sessionStorage.setItem('vizviz_intro', '1'); } catch (_) {}
+  let done = false;
+  const finish = () => {
+    if (done) return; done = true;
+    box.classList.add('fade'); vid.pause();
+    setTimeout(() => box.remove(), 650);
+  };
+  $('introSkip').addEventListener('click', e => { e.stopPropagation(); finish(); });
+  $('introSound').addEventListener('click', e => { e.stopPropagation(); vid.muted = false; vid.play().catch(() => {}); $('introSound').classList.add('hidden'); });
+  box.addEventListener('click', () => { if (vid.muted) $('introSound').click(); });
+  vid.addEventListener('ended', finish);
+  vid.addEventListener('error', finish);
+  // never get stuck on a black screen if the video can't load
+  const stall = setTimeout(() => { if (vid.currentTime === 0) finish(); }, 4000);
+  vid.addEventListener('playing', () => clearTimeout(stall), { once: true });
+  // try with sound first; browsers may only allow it muted until the first tap
+  vid.muted = false;
+  vid.play().catch(() => {
+    vid.muted = true; $('introSound').classList.remove('hidden');
+    vid.play().catch(finish);
+  });
+})();
 
 window.__vizviz = {
   get state() { return state; }, get mosquitoes() { return mosquitoes; }, get score() { return score; },
