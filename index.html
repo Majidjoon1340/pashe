@@ -144,7 +144,7 @@
   .helpBox button.big { width: 100%; margin-top: 10px; }
   .hidden { display: none !important; }
   /* welcome video, shown once each time the app starts */
-  #welcome { position: fixed; inset: 0; z-index: 50; background: #000 url(media/intro.jpg) center / cover no-repeat; transition: opacity .6s; }
+  #welcome { position: fixed; inset: 0; z-index: 50; background: #000 url(media/intro.jpg?v=2) center / cover no-repeat; transition: opacity .6s; }
   #welcome video { width: 100%; height: 100%; object-fit: cover; display: block; }
   #welcome.fade { opacity: 0; pointer-events: none; }
   #welcome button { position: absolute; font: inherit; color: #fff; cursor: pointer; background: rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.45); border-radius: 22px; }
@@ -154,7 +154,7 @@
 </head>
 <body>
 <div id="welcome">
-  <video id="introVid" playsinline preload="auto" poster="media/intro.jpg" src="media/intro.mp4"></video>
+  <video id="introVid" playsinline preload="auto" poster="media/intro.jpg?v=2" src="media/intro.mp4?v=2"></video>
   <button id="introSound" class="hidden" aria-label="صدا">🔊</button>
   <button id="introSkip">رد شو ›</button>
 </div>
