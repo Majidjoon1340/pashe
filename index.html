@@ -1903,7 +1903,7 @@ $('modes').addEventListener('click', e => {
   applyMode();
 });
 applyMode();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
 // Camera type: 'cam' = plain camera + motion sensors (no browser message),
 // 'xr' = WebXR AR (exact walking tracking, but Chrome shows its own "exit full screen" message).
 let canXR = false, trackMode = 'cam';

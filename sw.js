@@ -1,6 +1,6 @@
 // Offline support: the game works after the first visit even without internet.
 // The page itself is fetched network-first so updates arrive as soon as they're online.
-const CACHE = 'vizviz-v4';
+const CACHE = 'vizviz-v5';
 const FILES = ['./', './index.html', './lib/three.module.min.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './audio/music.mp3', './media/intro.jpg'];
 
@@ -18,7 +18,8 @@ self.addEventListener('fetch', e => {
   if (req.headers.has('range') || req.url.includes('.mp4')) return;
   const isPage = req.mode === 'navigate' || req.url.endsWith('.html');
   if (isPage) {
-    e.respondWith(fetch(req).then(res => {
+    // bypass the browser's HTTP cache (GitHub Pages keeps pages for 10 minutes) so updates show up on the next launch
+    e.respondWith(fetch(req.url, { cache: 'no-cache' }).then(res => {
       const copy = res.clone(); caches.open(CACHE).then(c => c.put('./index.html', copy)); return res;
     }).catch(() => caches.match('./index.html')));
   } else {
