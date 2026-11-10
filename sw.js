@@ -1,6 +1,6 @@
 // Offline support: the game works after the first visit even without internet.
 // The page itself is fetched network-first so updates arrive as soon as they're online.
-const CACHE = 'vizviz-v5';
+const CACHE = 'vizviz-v6';
 const FILES = ['./', './index.html', './lib/three.module.min.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './audio/music.mp3', './media/intro.jpg'];
 
