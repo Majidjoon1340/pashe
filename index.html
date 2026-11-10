@@ -198,6 +198,7 @@
     <div class="seg" id="modes">
       <button data-m="free" class="on">🕊️ پرواز آزاد</button>
       <button data-m="attack">⚔️ حمله</button>
+      <button data-m="radar">📡 رادار</button>
     </div>
   </div>
 
@@ -578,14 +579,20 @@ const THEMES = {
     sound: { wave: 'sine', f: 0.14, lfo: 0.7, depth: 0.3, tone: 0.4, noise: 280, noiseVol: 0.9 } }
 };
 let gameMode = 'free';   // default: free flight with planes
-try { if (localStorage.getItem('vizviz_mode') === 'attack') gameMode = 'attack'; } catch (_) {}
+try { const gm = localStorage.getItem('vizviz_mode'); if (gm === 'attack' || gm === 'radar') gameMode = gm; } catch (_) {}
 const FREE = () => gameMode === 'free';
+// Radar mode: a single target that never attacks; keep it on screen. Lost for more than 4 seconds = game over.
+const RADAR = () => gameMode === 'radar';
+const RADAR_LOST = 4, RADAR_STEP = 90;   // seconds off screen allowed, length of each level
+let radarT = 0, lostT = 0, lostBeep = 0;
 function applyMode() {
   for (const x of $('modes').children) x.classList.toggle('on', x.dataset.m === gameMode);
-  $('modeDesc').textContent = FREE()
+  $('modeDesc').textContent = RADAR()
+    ? 'فقط یکی هست و بهت حمله نمی‌کنه، ولی مدام دور و برت می‌چرخه. با گوشی دنبالش کن و نذار از صفحه بیرون بره. اگه بیشتر از ۴ ثانیه توی صفحه نباشه، می‌بازی. هر مرحله ۹۰ ثانیه است؛ اگه تا آخرش نگهش داری، می‌ری مرحله‌ی بعد و تندتر و پرمانورتر می‌شه. هر چی نزدیک‌تر به وسط صفحه نگهش داری، امتیازت بیشتر می‌شه.'
+    : FREE()
     ? 'کسی بهت حمله نمی‌کنه، ولی همه‌شون دائم در حال پروازن. قبل از تموم شدن وقت همه رو بزن. هر مرحله تندتر و پرمانورتر می‌شن.'
     : 'وقتی نزدیکشون بشی بهت حمله می‌کنن. قبل از اینکه بهت برسن بزنشون.';
-  $('whatQ').textContent = FREE() ? 'با چی بازی کنی؟' : 'چی بهت حمله کنه؟';
+  $('whatQ').textContent = RADAR() ? 'چی رو دنبال کنی؟' : FREE() ? 'با چی بازی کنی؟' : 'چی بهت حمله کنه؟';
   applyTheme();
 }
 let themeKey = 'plane';
@@ -594,11 +601,13 @@ let theme = THEMES[themeKey];
 function applyTheme() {
   theme = THEMES[themeKey];
   for (const x of $('themes').children) x.classList.toggle('on', x.dataset.t === themeKey);
-  $('intro').textContent = FREE()
+  $('intro').textContent = RADAR()
+    ? 'یه ' + theme.one + ' دور و برت پرواز می‌کنه. گوشی رو به طرفش بگیر و همیشه توی صفحه نگهش دار.'
+    : FREE()
     ? theme.many + ' دور و برت در حال پروازن. راه برو، گوشی رو به اطراف بگیر، دنبالشون کن و با انگشت بزن روشون.'
     : theme.intro + ' راه برو، گوشی رو به اطراف بگیر و پیداشون کن. وقتی بهشون نزدیک بشی بهت حمله می‌کنن، پس قبل از اینکه بهت برسن با انگشت بزن روشون.';
   $('intro2').textContent = 'رادار بالای صفحه نشون می‌ده ' + theme.many + ' کدوم طرف و چقدر دورن. با هدفون صداشون رو هم می‌شنوی.';
-  $('leftLabel').textContent = theme.many + 'ی مونده';
+  $('leftLabel').textContent = RADAR() ? 'کل زمان' : theme.many + 'ی مونده';
 }
 
 // ---------- Variants (same for every theme) ----------
@@ -1027,6 +1036,7 @@ function startLevel() {
   // Room and home: the play space is anchored where the game started and stays there for the whole game,
   // so targets wait in that room when you walk out. Outdoors it moves along with you, level by level.
   if (level === 1 || !anchored()) origin.set(camPos.x, 0, camPos.z);
+  if (RADAR()) { startRadar(); return; }
   const plan = levelPlan(level);
   const bossLevel = level % 3 === 0;
   if (bossLevel) plan.count = Math.ceil(plan.count / 2);
@@ -1051,7 +1061,44 @@ function startLevel() {
   else showBanner('مرحله‌ی ' + fa(level), fa(plan.count) + ' تا ' + theme.one + ' این اطراف قایم شدن', 2200);
   sfx('level');
 }
-function updateLeft() { $('left').textContent = fa(mosquitoes.length); }
+function updateRadar(rdt) {
+  const m = mosquitoes[0];
+  radarT += rdt;
+  // visible = its centre is on the screen (m.screen comes from the last frame's projection)
+  const s = m.screen, seen = s && s.x > 0 && s.x < W && s.y > 0 && s.y < H;
+  if (seen) {
+    if (lostT > 0.5) sfx('alert');
+    lostT = 0;
+    const off = Math.hypot(s.x - W / 2, s.y - H / 2) / (Math.min(W, H) / 2);
+    score += rdt * (off < 0.35 ? 20 : 10);   // double points near the centre
+  } else if (radarT > 2) {
+    lostT += rdt;
+    if (Math.ceil(RADAR_LOST - lostT) !== lostBeep) { lostBeep = Math.ceil(RADAR_LOST - lostT); sfx('beep', 4 - lostBeep); }
+    if (lostT >= RADAR_LOST) { gameOver(false, false, true); return; }
+  }
+  $('score').textContent = fa(score);
+  // each level lasts 90 seconds; keep it on the radar that long and you move up
+  const left = RADAR_STEP * level - radarT;
+  $('timer').textContent = 'زمان: ' + fa(Math.ceil(left)); $('timer').style.color = '';
+  if (left <= 0) {
+    const bonus = 200 * level;
+    score += bonus; level++;
+    $('level').textContent = fa(level); $('score').textContent = fa(score); sfx('level');
+    showBanner('مرحله‌ی ' + fa(level) + '!', 'جایزه: ' + fa(bonus) + '، حالا تندتر و پرمانورتره', 2600);
+  }
+  updateLeft();
+}
+function startRadar() {
+  // one target, starting right in front of you so the chase begins on screen
+  const [fx, fz] = forwardFlat(), d = Math.min(2.5, Math.max(1.6, areaR * 0.5));
+  const m = spawn('normal', V(camPos.x + fx * d, Math.max(0.9, camPos.y - 0.15), camPos.z + fz * d), levelPlan(1));
+  m.heading.set(-fz, 0, fx); m.mode = 'cruise'; m.speed = 0.3;
+  m.wp = hidingSpot(Math.max(0.8, areaR * 0.25), Math.max(2, areaR)); m.wpT = rand(4, 7);
+  radarT = 0; lostT = 0; lostBeep = 0; crateAt = 0; levelLimit = 0;
+  $('level').textContent = fa(level); updateLeft();
+  showBanner('دنبالش کن!', 'نذار ' + theme.one + ' از صفحه بیرون بره', 2400);
+}
+function updateLeft() { $('left').textContent = RADAR() ? fa(Math.floor(radarT)) : fa(mosquitoes.length); }
 function showBanner(text, sub = '', ms = 1600) {
   bannerEl.innerHTML = text + (sub ? '<small>' + sub + '</small>' : '');
   bannerEl.style.opacity = 1;
@@ -1068,7 +1115,7 @@ function resetGame() {
   clearWorld();
   score = 0; health = 100; level = 0; combo = 0; biteTimes = []; itchUntil = 0; steps = 0; levelBreak = 0;
   $('score').textContent = fa(0); $('health').style.width = '100%';
-  $('healthWrap').classList.toggle('hidden', FREE()); $('timer').classList.toggle('hidden', !FREE());
+  $('healthWrap').classList.toggle('hidden', FREE() || RADAR()); $('timer').classList.toggle('hidden', !FREE() && !RADAR());
   startLevel();
 }
 
@@ -1174,14 +1221,16 @@ function kill(m, sx, sy, perfect) {
   try { navigator.vibrate && navigator.vibrate(20); } catch (_) {}
 }
 
-function gameOver(quit, timeUp) {
+function gameOver(quit, timeUp, lost) {
   if (state !== 'play') return;
   state = 'over';
   mosquitoes.forEach(m => { stopVoice(m.voice); m.voice = null; });
+  score = Math.round(score);
   let best = 0;
-  try { best = +localStorage.getItem('vizviz_best') || 0; if (score > best) localStorage.setItem('vizviz_best', score); } catch (_) {}
-  $('overTitle').textContent = quit ? 'بازی تموم شد' : timeUp ? 'وقت تموم شد!' : theme.hitTitle;
-  $('overText').innerHTML = 'به مرحله‌ی ' + fa(level) + ' رسیدی.<br>امتیاز: <b>' + fa(score) + '</b>' +
+  const bestKey = RADAR() ? 'vizviz_best_radar' : 'vizviz_best';   // radar scores are on their own scale
+  try { best = +localStorage.getItem(bestKey) || 0; if (score > best) localStorage.setItem(bestKey, score); } catch (_) {}
+  $('overTitle').textContent = quit ? 'بازی تموم شد' : lost ? 'گمش کردی!' : timeUp ? 'وقت تموم شد!' : theme.hitTitle;
+  $('overText').innerHTML = (RADAR() ? fa(Math.floor(radarT)) + ' ثانیه دنبالش کردی.' : 'به مرحله‌ی ' + fa(level) + ' رسیدی.') + '<br>امتیاز: <b>' + fa(score) + '</b>' +
     (score > best ? '<br>رکورد جدید!' : (best ? '<br>بهترین امتیاز: ' + fa(best) : ''));
   $('overScreen').classList.remove('hidden');
   $('hud').classList.add('hidden'); $('musicBtn2').classList.add('hidden');
@@ -1198,6 +1247,7 @@ canvas.addEventListener('pointerup', e => {
 overlayEl.addEventListener('beforexrselect', e => e.preventDefault());
 
 function swat(x, y) {
+  if (RADAR()) return;   // nothing to shoot: just keep it on screen
   const big = power && power.kind === 'big';
   particles.push({ ring: true, x, y, life: 0.25, r: big ? 30 : 10, c: big ? 'rgba(120,255,200,.9)' : null });
   // the bonus crate opens with a tap
@@ -1427,13 +1477,14 @@ function moveEntity(m, dt) {
 // Speed, turning and side-to-side manoeuvres grow with the level.
 const FREE_SPEED = { mosquito: 0.35, bird: 0.55, plane: 0.7, missile: 0.8, star: 0.3, shark: 0.55 };
 function moveFree(m, dt) {
-  const T = m.T, lv = level - 1;
+  // radar levels are long (90 s), so each one steps up speed and turning a lot more
+  const T = m.T, lv = (level - 1) * (RADAR() ? 2.5 : 1);
   const speed = FREE_SPEED[themeKey] * (0.7 + areaR * 0.05) * (1 + lv * 0.12) * (T.agile ? 1.3 : 1) * (T.hp > 1 ? 0.8 : 1);
   m.wpT = (m.wpT || 0) - dt;
   let desired = m.fly ? flyoverDir(m, dt) : null;
   if (!desired) {
     if (!m.wp || m.pos.distanceTo(m.wp) < 0.5 || m.wpT <= 0) {
-      m.wp = hidingSpot(Math.max(0.8, areaR * 0.25), Math.max(2, areaR)); m.wpT = rand(5, 10);
+      m.wp = hidingSpot(Math.max(0.8, areaR * 0.25), Math.max(2, areaR)); m.wpT = rand(5, 10) / (1 + lv * 0.15);
       if (canFlyover(m) && Math.random() < 0.3) startFlyover(m);
     }
     desired = m.wp.clone().sub(m.pos).normalize();
@@ -1633,7 +1684,9 @@ function update(dt) {
     $('timer').style.color = left < 10 ? '#ff5050' : '';
     if (left <= 0) { gameOver(false, true); return; }
   }
-  if (mosquitoes.length === 0 && wrecks.length === 0) {
+  if (RADAR() && mosquitoes.length) updateRadar(rdt);
+  if (state !== 'play') return;
+  if (!RADAR() && mosquitoes.length === 0 && wrecks.length === 0) {
     if (levelBreak <= 0) {
       levelBreak = 3;
       const bonus = FREE() ? Math.round(Math.max(0, levelLimit - levelTime) * 5) : Math.max(0, Math.round(200 - levelTime * 2));
@@ -1651,7 +1704,7 @@ function update(dt) {
     m.phase += dt;
     if (m.hitFlash > 0) m.hitFlash -= dt;
     if (m.cool > 0) m.cool -= dt;
-    if (!window.__freeze) (m.T.boss ? moveBoss : FREE() ? moveFree : moveEntity)(m, dt);
+    if (!window.__freeze) (m.T.boss ? moveBoss : FREE() || RADAR() ? moveFree : moveEntity)(m, dt);
     if (state !== 'play') return;
     if (m.dead) continue;
     if (m.mode === 'attack') attackers++;
@@ -1681,7 +1734,8 @@ function update(dt) {
 
   if (mosquitoes.length) {
     const nearest = Math.min(...mosquitoes.map(m => m.pos.distanceTo(camPos)));
-    if (FREE()) hintEl.textContent = nearest > 2.4 ? 'نزدیک‌ترین ' + theme.one + ' حدود ' + fa(Math.round(nearest)) + ' متر دوره.' : '';
+    if (RADAR()) hintEl.textContent = lostT > 0 ? 'گمش کردی! دنبال فلش برو' : '';
+    else if (FREE()) hintEl.textContent = nearest > 2.4 ? 'نزدیک‌ترین ' + theme.one + ' حدود ' + fa(Math.round(nearest)) + ' متر دوره.' : '';
     else if (attackers) hintEl.textContent = attackers > 1 ? fa(attackers) + ' تا ' + theme.one + ' دارن حمله می‌کنن!' : 'یه ' + theme.one + ' داره حمله می‌کنه!';
     else if (nearest > 2.4) hintEl.textContent = 'نزدیک‌ترین ' + theme.one + ' حدود ' + fa(Math.round(nearest)) + ' متر دوره. راه برو و دنبالش بگرد.' +
       (mode === 'sensor' && hasSensor && steps === 0 && levelTime > 6 ? ' (گوشی رو جلوت نگه دار و راه برو، قدم‌هات شمرده می‌شه)' : '');
@@ -1858,7 +1912,7 @@ function render(dt) {
     // nothing to see on screen: point at the two nearest targets so you know which way to turn
     if (!anyOn && state === 'play') {
       offs.sort((a, b) => a[0] - b[0]);
-      for (const [d, m, v] of offs.slice(0, 2)) drawEdgeArrow(v, 2, m.T.boss ? '#ff4fd8' : '#ffcf3f');
+      for (const [d, m, v] of offs.slice(0, 2)) drawEdgeArrow(v, RADAR() ? 0.5 : 2, m.T.boss ? '#ff4fd8' : RADAR() ? '#ff4d4d' : '#ffcf3f');
     }
     if (closestAttack < 1.4 && state === 'play') {
       const a = Math.min(0.45, (1.4 - closestAttack) * 0.45) * (0.7 + 0.3 * Math.sin(time * 12));
@@ -1887,6 +1941,16 @@ function render(dt) {
     }
     if (themeKey === 'shark') drawWater();
     if (state === 'play') drawRadar();
+    if (RADAR() && state === 'play' && lostT > 0) {
+      // lost it: big countdown in the middle, red flash at the edges
+      const left = Math.max(0, RADAR_LOST - lostT), k = 0.5 + 0.5 * Math.sin(time * 10);
+      const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
+      g.addColorStop(0, 'rgba(255,0,0,0)'); g.addColorStop(1, `rgba(255,0,0,${0.15 + 0.2 * k * (1 - left / RADAR_LOST)})`);
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      ctx.textAlign = 'center'; ctx.font = 'bold 72px Vazirmatn, Tahoma, sans-serif';
+      ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillText(fa(Math.ceil(left)), W / 2 + 2, H * 0.42 + 2);
+      ctx.fillStyle = '#ff4d4d'; ctx.fillText(fa(Math.ceil(left)), W / 2, H * 0.42);
+    }
   }
   for (const pt of particles) {
     ctx.globalAlpha = Math.max(0, Math.min(1, pt.life * 2));
@@ -2034,6 +2098,7 @@ window.__vizviz = {
   get crate() { return crate; }, get power() { return power; }, set crateAt(v) { crateAt = v; }, get slowmo() { return slowmoT; },
   get lookYaw() { return lookYaw; }, set lookYaw(v) { lookYaw = v; }, set lookPitch(v) { lookPitch = v; },
   spawnType: (t) => spawn(t, camPos.clone()), flyover: (m) => startFlyover(m),
+  get radarT() { return radarT; }, set radarT(v) { radarT = v; },
   get music() { return { on: musicOn, playing: !!musicSrc, gain: musicGain ? musicGain.gain.value : 0, dur: musicBuf ? musicBuf.duration : 0 }; }
 };
 </script>
