@@ -583,12 +583,12 @@ try { const gm = localStorage.getItem('vizviz_mode'); if (gm === 'attack' || gm 
 const FREE = () => gameMode === 'free';
 // Radar mode: a single target that never attacks; keep it on screen. Lost for more than 4 seconds = game over.
 const RADAR = () => gameMode === 'radar';
-const RADAR_LOST = 4, RADAR_STEP = 90;   // seconds off screen allowed, length of each level
+const RADAR_LOST = 4, RADAR_STEP = 60;   // seconds off screen allowed, length of each level
 let radarT = 0, lostT = 0, lostBeep = 0;
 function applyMode() {
   for (const x of $('modes').children) x.classList.toggle('on', x.dataset.m === gameMode);
   $('modeDesc').textContent = RADAR()
-    ? 'فقط یکی هست و بهت حمله نمی‌کنه، ولی مدام دور و برت می‌چرخه. با گوشی دنبالش کن و نذار از صفحه بیرون بره. اگه بیشتر از ۴ ثانیه توی صفحه نباشه، می‌بازی. هر مرحله ۹۰ ثانیه است؛ اگه تا آخرش نگهش داری، می‌ری مرحله‌ی بعد و تندتر و پرمانورتر می‌شه. هر چی نزدیک‌تر به وسط صفحه نگهش داری، امتیازت بیشتر می‌شه.'
+    ? 'فقط یکی هست و بهت حمله نمی‌کنه، ولی مدام دور و برت می‌چرخه. با گوشی دنبالش کن و نذار از صفحه بیرون بره. اگه بیشتر از ۴ ثانیه توی صفحه نباشه، می‌بازی. هر مرحله ۶۰ ثانیه است؛ اگه تا آخرش نگهش داری، می‌ری مرحله‌ی بعد و تندتر و پرمانورتر می‌شه. هر چی نزدیک‌تر به وسط صفحه نگهش داری، امتیازت بیشتر می‌شه.'
     : FREE()
     ? 'کسی بهت حمله نمی‌کنه، ولی همه‌شون دائم در حال پروازن. قبل از تموم شدن وقت همه رو بزن. هر مرحله تندتر و پرمانورتر می‌شن.'
     : 'وقتی نزدیکشون بشی بهت حمله می‌کنن. قبل از اینکه بهت برسن بزنشون.';
@@ -1077,7 +1077,7 @@ function updateRadar(rdt) {
     if (lostT >= RADAR_LOST) { gameOver(false, false, true); return; }
   }
   $('score').textContent = fa(score);
-  // each level lasts 90 seconds; keep it on the radar that long and you move up
+  // each level lasts 60 seconds; keep it on the radar that long and you move up
   const left = RADAR_STEP * level - radarT;
   $('timer').textContent = 'زمان: ' + fa(Math.ceil(left)); $('timer').style.color = '';
   if (left <= 0) {
@@ -1477,7 +1477,7 @@ function moveEntity(m, dt) {
 // Speed, turning and side-to-side manoeuvres grow with the level.
 const FREE_SPEED = { mosquito: 0.35, bird: 0.55, plane: 0.7, missile: 0.8, star: 0.3, shark: 0.55 };
 function moveFree(m, dt) {
-  // radar levels are long (90 s), so each one steps up speed and turning a lot more
+  // radar levels are long (60 s), so each one steps up speed and turning a lot more
   const T = m.T, lv = (level - 1) * (RADAR() ? 2.5 : 1);
   const speed = FREE_SPEED[themeKey] * (0.7 + areaR * 0.05) * (1 + lv * 0.12) * (T.agile ? 1.3 : 1) * (T.hp > 1 ? 0.8 : 1);
   m.wpT = (m.wpT || 0) - dt;
