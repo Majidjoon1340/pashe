@@ -197,7 +197,7 @@
     <div class="label">حالت بازی</div>
     <div class="seg" id="modes">
       <button data-m="free" class="on">🕊️ پرواز آزاد</button>
-      <button data-m="attack">⚔️ حمله به کاربر</button>
+      <button data-m="attack">⚔️ حمله</button>
     </div>
   </div>
 
@@ -948,6 +948,18 @@ let score = 0, health = 100, level = 0, levelTime = 0, levelBreak = 0, levelLimi
 let combo = 0, comboTimer = 0, biteTimes = [], itchUntil = 0, shake = 0;
 let slowmoT = 0, power = null, crate = null, crateAt = 0, bossMinionT = 0;
 let lastT = 0, time = 0, nextId = 1;
+// Attack pacing: targets take turns instead of all launching at once.
+// Missiles go one at a time on the first levels, with a pause between launches.
+let nextLaunch = 0;
+function canLaunch() {
+  const missile = themeKey === 'missile';
+  const max = missile ? Math.min(3, 1 + Math.floor((level - 1) / 3)) : 3 + Math.floor(level / 2);
+  const busy = mosquitoes.filter(o => o.mode === 'attack' && !o.dead && !o.T.boss).length;
+  return time >= nextLaunch && busy < max;
+}
+function noteLaunch() {
+  nextLaunch = time + (themeKey === 'missile' ? Math.max(1.5, 3.2 - level * 0.2) * rand(0.8, 1.3) : rand(0.4, 0.9));
+}
 const MAX_VOICES = 7;
 
 function levelPlan(n) {
@@ -1011,6 +1023,7 @@ function removeModel(model) {
 
 function startLevel() {
   level++; levelTime = 0;
+  nextLaunch = time + (themeKey === 'missile' ? 2.5 : 1);   // a moment to look around before the first attack
   // Room and home: the play space is anchored where the game started and stays there for the whole game,
   // so targets wait in that room when you walk out. Outdoors it moves along with you, level by level.
   if (level === 1 || !anchored()) origin.set(camPos.x, 0, camPos.z);
@@ -1323,8 +1336,8 @@ function moveEntity(m, dt) {
   const T = m.T;
   const wv = weaveAmount() + (T.agile && level >= 3 ? 0.15 : 0);
 
-  if (m.mode === 'rest' && dP < m.aggro && m.cool <= 0 && !playerOutside()) {
-    m.mode = 'attack'; m.attackT = 0;
+  if (m.mode === 'rest' && dP < m.aggro && m.cool <= 0 && !playerOutside() && canLaunch()) {
+    m.mode = 'attack'; m.attackT = 0; noteLaunch();
     sfx(themeKey === 'missile' ? 'launch' : 'alert');
   }
   if (m.mode === 'attack' && dP > m.aggro * 2.6 && themeKey !== 'missile' && themeKey !== 'star') { m.mode = 'rest'; m.cool = 2; }
